@@ -3,6 +3,8 @@ import type { Plugin } from "vite";
 // Dev-only SSE endpoint at /api/events. Pushes a `tick` event every 2s so the
 // client has something to receive.
 export function ssePlugin(): Plugin {
+  let moodState: "happy" | "sad" = "happy";
+
   return {
     name: "dev-sse",
     configureServer(server) {
@@ -26,8 +28,15 @@ export function ssePlugin(): Plugin {
           2000,
         );
 
+        const moodTimer = setInterval(() => {
+          const newMood = moodState === "happy" ? "sad" : "happy";
+          moodState = newMood;
+          send("mood", { mood: newMood, n: id });
+        }, 4000);
+
         res.on("close", () => {
           clearInterval(timer);
+          clearInterval(moodTimer);
           res.end();
         });
       });

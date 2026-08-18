@@ -16,9 +16,10 @@ export function SseDemo() {
     es.onerror = () => setStatus("error / reconnecting…");
 
     // Named events need their own listener; only unnamed ones hit onmessage.
-    es.addEventListener("hello", push("hello"));
-    es.addEventListener("tick", push("tick"));
-    es.onmessage = push("message");
+    // es.addEventListener("hello", push("hello"));
+    // es.addEventListener("tick", push("tick"));
+    es.addEventListener("mood", push("mood"));
+    // es.onmessage = push("message");
 
     return () => es.close();
   }, []);

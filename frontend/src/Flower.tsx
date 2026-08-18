@@ -15,6 +15,24 @@ export function Flower() {
     return () => clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    const es = new EventSource("/api/events");
+
+    const push =
+      (event: string) => (e: MessageEvent<{ mood: "happy" | "sad" }>) => {
+        console.log(e);
+      };
+    // setLines((prev) => [...prev, { event, data: e.data }].slice(-20));
+
+    // es.onopen = () => setStatus("open");
+    // es.onerror = () => setStatus("error / reconnecting…");
+
+    // Named events need their own listener; only unnamed ones hit onmessage.
+    es.addEventListener("mood", push("mood"));
+
+    return () => es.close();
+  }, []);
+
   return (
     <div>
       <h1>I'm a flower!</h1>
