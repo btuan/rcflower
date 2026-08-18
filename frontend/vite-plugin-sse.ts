@@ -33,7 +33,7 @@ export function ssePlugin(): Plugin {
           moodState = newMood;
           send("mood", { mood: newMood, n: id });
           moodState = newMood;
-        }, 3000);
+        }, 2000);
 
         res.on("close", () => {
           clearInterval(timer);

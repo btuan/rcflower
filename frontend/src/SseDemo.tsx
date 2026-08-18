@@ -18,6 +18,7 @@ export function SseDemo() {
     // Named events need their own listener; only unnamed ones hit onmessage.
     // es.addEventListener("hello", push("hello"));
     // es.addEventListener("tick", push("tick"));
+    console.log("Server: SSE event sent");
     es.addEventListener("mood", push("mood"));
     // es.onmessage = push("message");
 

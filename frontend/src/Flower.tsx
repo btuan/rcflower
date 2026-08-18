@@ -12,9 +12,9 @@ export function Flower() {
     const es = new EventSource("/api/events");
 
     const push = (event: string) => (e: MessageEvent) => {
+      console.log("SSE event:ingested", e);
       if (event === "mood") {
         const data = JSON.parse(e.data);
-        console.log("data", data);
         setMood(data.mood);
       }
     };
@@ -39,7 +39,7 @@ export function Flower() {
           img === flowerHappy ? flowerNeutral : flowerHappy,
         );
       }
-    }, 500);
+    }, 200);
     return () => clearInterval(id);
   }, [mood]);
 
