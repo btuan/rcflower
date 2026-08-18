@@ -1,13 +1,31 @@
 import type { Plugin } from "vite";
+import type { ServerResponse } from "node:http";
 
-// Dev-only SSE endpoint at /api/events. Pushes a `tick` event every 2s so the
-// client has something to receive.
+// Dev-only SSE endpoint at /api/events. A single timer flips the mood and
+// broadcasts it to every connected client.
 export function ssePlugin(): Plugin {
-  let moodState: "happy" | "sad" = "happy";
-
   return {
     name: "dev-sse",
     configureServer(server) {
+      // Runs once, when the dev server starts.
+      const clients = new Set<ServerResponse>();
+      let moodState: "happy" | "sad" = "happy";
+      let id = 0;
+
+      const broadcast = (event: string, data: unknown) => {
+        id++;
+        const frame = `id: ${id}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+        for (const res of clients) res.write(frame);
+      };
+
+      const moodTimer = setInterval(() => {
+        moodState = moodState === "happy" ? "sad" : "happy";
+        broadcast("mood", { mood: moodState });
+      }, 2000);
+
+      server.httpServer?.on("close", () => clearInterval(moodTimer));
+
+      // Runs once per connection.
       server.middlewares.use("/api/events", (_req, res) => {
         res.writeHead(200, {
           "Content-Type": "text/event-stream",
@@ -15,29 +33,13 @@ export function ssePlugin(): Plugin {
           Connection: "keep-alive",
         });
 
-        let id = 0;
-        const send = (event: string, data: unknown) => {
-          res.write(`id: ${++id}\n`);
-          res.write(`event: ${event}\n`);
-          res.write(`data: ${JSON.stringify(data)}\n\n`);
-        };
-
-        send("hello", { message: "connected" });
-        const timer = setInterval(
-          () => send("tick", { at: new Date().toISOString(), n: id }),
-          2000,
-        );
-
-        const moodTimer = setInterval(() => {
-          const newMood = moodState === "happy" ? "sad" : "happy";
-          moodState = newMood;
-          send("mood", { mood: newMood, n: id });
-          moodState = newMood;
-        }, 2000);
+        clients.add(res);
+        // Send current state right away so a fresh tab isn't blank until the
+        // next tick.
+        res.write(`event: mood\ndata: ${JSON.stringify({ mood: moodState })}\n\n`);
 
         res.on("close", () => {
-          clearInterval(timer);
-          clearInterval(moodTimer);
+          clients.delete(res);
           res.end();
         });
       });
