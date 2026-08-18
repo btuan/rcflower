@@ -32,7 +32,8 @@ export function ssePlugin(): Plugin {
           const newMood = moodState === "happy" ? "sad" : "happy";
           moodState = newMood;
           send("mood", { mood: newMood, n: id });
-        }, 4000);
+          moodState = newMood;
+        }, 3000);
 
         res.on("close", () => {
           clearInterval(timer);
