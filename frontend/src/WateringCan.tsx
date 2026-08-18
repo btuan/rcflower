@@ -1,8 +1,14 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { rollAngle, tiltFromFlat, upInDevice } from "./orientation";
 import { useDeviceOrientation } from "./useDeviceOrientation";
 import { useTwistGesture } from "./useTwistGesture";
 import type { TwistHandlers } from "./useTwistGesture";
+import wateringCanUpright from "./assets/WateringCan/WateringCanUpright.png";
+import wateringCanPour1 from "./assets/WateringCan/WateringCanPour1.png";
+import wateringCanPour2 from "./assets/WateringCan/WateringCanPour2.png";
+
+const POUR_FRAMES = [wateringCanPour1, wateringCanPour2];
+const POUR_FRAME_MS = 140;
 
 const fmt = (n: number | null | undefined, digits = 1) =>
   n === null || n === undefined ? "—" : n.toFixed(digits);
@@ -19,6 +25,19 @@ export default function WateringCan() {
 
   const [twists, setTwists] = useState(0);
   const [pouring, setPouring] = useState(false);
+  const [pourFrame, setPourFrame] = useState(0);
+
+  useEffect(() => {
+    if (!pouring) {
+      setPourFrame(0);
+      return;
+    }
+    const id = setInterval(
+      () => setPourFrame((n) => (n + 1) % POUR_FRAMES.length),
+      POUR_FRAME_MS,
+    );
+    return () => clearInterval(id);
+  }, [pouring]);
 
   const handlers: TwistHandlers = useMemo(
     () => ({
@@ -65,6 +84,18 @@ export default function WateringCan() {
       <h1 style={{ fontSize: 22, fontWeight: 500, marginBottom: 16 }}>
         Watering can
       </h1>
+
+      {(() => {
+        const src = pouring ? POUR_FRAMES[pourFrame] : wateringCanUpright;
+        return [wateringCanUpright, ...POUR_FRAMES].map((frame) => (
+          <img
+            key={frame}
+            src={frame}
+            alt="Watering can"
+            style={{ display: frame === src ? "block" : "none" }}
+          />
+        ));
+      })()}
 
       {!listening && (
         <button
