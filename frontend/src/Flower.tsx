@@ -16,12 +16,16 @@ export function Flower() {
       if (event === "mood") {
         const data = JSON.parse(e.data);
         setMood(data.mood);
+      } else if (event == "person") {
+        const data = JSON.parse(e.data);
+        console.log("data", data);
+        setMood(data.inFrame ? "happy" : "sad");
       }
     };
 
     // Named events need their own listener; only unnamed ones hit onmessage.
     es.addEventListener("mood", push("mood"));
-
+    es.addEventListener("person", push("person"));
     return () => es.close();
   }, []);
 

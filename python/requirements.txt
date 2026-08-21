@@ -1,0 +1,4 @@
+opencv-python>=4.9
+numpy>=1.26
+ai-edge-litert>=2.2.0
+flask>=3.0

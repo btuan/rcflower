@@ -1,31 +1,49 @@
 import type { Plugin } from "vite";
 import type { ServerResponse } from "node:http";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-// Dev-only SSE endpoint at /api/events. A single timer flips the mood and
-// broadcasts it to every connected client.
+const STATE_PATH = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../state/detections.json",
+);
+
+type Detection = { label: string };
+type DetectionState = { detections: Detection[] };
+
+function personInFrame(): boolean {
+  try {
+    const raw = fs.readFileSync(STATE_PATH, "utf-8");
+    const state = JSON.parse(raw) as DetectionState;
+    return state.detections.some((d) => d.label === "person");
+  } catch {
+    return false;
+  }
+}
+
+// Dev-only SSE endpoint at /api/events. Polls state/detections.json
+// (written by python/detect.py) and pushes a `person` event with
+// { inFrame: boolean } whenever a person enters or leaves frame.
 export function ssePlugin(): Plugin {
   return {
     name: "dev-sse",
     configureServer(server) {
-      // Runs once, when the dev server starts.
       const clients = new Set<ServerResponse>();
-      let moodState: "happy" | "sad" = "happy";
-      let id = 0;
+      let inFrame = personInFrame();
 
-      const broadcast = (event: string, data: unknown) => {
-        id++;
-        const frame = `id: ${id}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-        for (const res of clients) res.write(frame);
+      const broadcast = () => {
+        const next = personInFrame();
+        if (next === inFrame) return;
+        inFrame = next;
+        const payload = `event: person\ndata: ${JSON.stringify({ inFrame })}\n\n`;
+        console.log("payload", payload, new Date().getTime());
+        for (const res of clients) res.write(payload);
       };
 
-      const moodTimer = setInterval(() => {
-        moodState = moodState === "happy" ? "sad" : "happy";
-        broadcast("mood", { mood: moodState });
-      }, 2000);
+      const pollTimer = setInterval(broadcast, 200);
+      server.httpServer?.on("close", () => clearInterval(pollTimer));
 
-      server.httpServer?.on("close", () => clearInterval(moodTimer));
-
-      // Runs once per connection.
       server.middlewares.use("/api/events", (_req, res) => {
         res.writeHead(200, {
           "Content-Type": "text/event-stream",
@@ -34,9 +52,7 @@ export function ssePlugin(): Plugin {
         });
 
         clients.add(res);
-        // Send current state right away so a fresh tab isn't blank until the
-        // next tick.
-        res.write(`event: mood\ndata: ${JSON.stringify({ mood: moodState })}\n\n`);
+        res.write(`event: person\ndata: ${JSON.stringify({ inFrame })}\n\n`);
 
         res.on("close", () => {
           clients.delete(res);

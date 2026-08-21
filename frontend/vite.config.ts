@@ -1,3 +1,4 @@
+import path from "node:path";
 import { defineConfig } from "vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import babel from "@rolldown/plugin-babel";
@@ -12,4 +13,11 @@ export default defineConfig({
     tailwindcss(),
     ssePlugin(),
   ],
+  server: {
+    host: "0.0.0.0",
+    port: 5173,
+    fs: {
+      allow: [path.resolve(import.meta.dirname, "..")],
+    },
+  },
 });
