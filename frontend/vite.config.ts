@@ -1,3 +1,4 @@
+import path from "node:path";
 import { defineConfig } from "vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import babel from "@rolldown/plugin-babel";
@@ -15,6 +16,10 @@ export default defineConfig({
     ssePlugin(),
   ],
   server: {
-    host: true, // bind 0.0.0.0 so the phone can reach it
+    host: "0.0.0.0",
+    port: 5173,
+    fs: {
+      allow: [path.resolve(import.meta.dirname, "..")],
+    },
   },
 });

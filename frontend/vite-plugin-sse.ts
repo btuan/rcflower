@@ -1,13 +1,49 @@
 import type { Plugin } from "vite";
+import type { ServerResponse } from "node:http";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-// Dev-only SSE endpoint at /api/events. Pushes a `tick` event every 2s so the
-// client has something to receive.
+const STATE_PATH = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../state/detections.json",
+);
+
+type Detection = { label: string };
+type DetectionState = { detections: Detection[] };
+
+function personInFrame(): boolean {
+  try {
+    const raw = fs.readFileSync(STATE_PATH, "utf-8");
+    const state = JSON.parse(raw) as DetectionState;
+    return state.detections.some((d) => d.label === "person");
+  } catch {
+    return false;
+  }
+}
+
+// Dev-only SSE endpoint at /api/events. Polls state/detections.json
+// (written by python/detect.py) and pushes a `person` event with
+// { inFrame: boolean } whenever a person enters or leaves frame.
 export function ssePlugin(): Plugin {
-  let moodState: "happy" | "sad" = "happy";
-
   return {
     name: "dev-sse",
     configureServer(server) {
+      const clients = new Set<ServerResponse>();
+      let inFrame = personInFrame();
+
+      const broadcast = () => {
+        const next = personInFrame();
+        if (next === inFrame) return;
+        inFrame = next;
+        const payload = `event: person\ndata: ${JSON.stringify({ inFrame })}\n\n`;
+        console.log("payload", payload, new Date().getTime());
+        for (const res of clients) res.write(payload);
+      };
+
+      const pollTimer = setInterval(broadcast, 200);
+      server.httpServer?.on("close", () => clearInterval(pollTimer));
+
       server.middlewares.use("/api/events", (_req, res) => {
         res.writeHead(200, {
           "Content-Type": "text/event-stream",
@@ -15,28 +51,11 @@ export function ssePlugin(): Plugin {
           Connection: "keep-alive",
         });
 
-        let id = 0;
-        const send = (event: string, data: unknown) => {
-          res.write(`id: ${++id}\n`);
-          res.write(`event: ${event}\n`);
-          res.write(`data: ${JSON.stringify(data)}\n\n`);
-        };
-
-        send("hello", { message: "connected" });
-        const timer = setInterval(
-          () => send("tick", { at: new Date().toISOString(), n: id }),
-          2000,
-        );
-
-        const moodTimer = setInterval(() => {
-          const newMood = moodState === "happy" ? "sad" : "happy";
-          moodState = newMood;
-          send("mood", { mood: newMood, n: id });
-        }, 4000);
+        clients.add(res);
+        res.write(`event: person\ndata: ${JSON.stringify({ inFrame })}\n\n`);
 
         res.on("close", () => {
-          clearInterval(timer);
-          clearInterval(moodTimer);
+          clients.delete(res);
           res.end();
         });
       });
