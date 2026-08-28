@@ -11,6 +11,7 @@ export const config = {
   port: Number(Bun.env.PORT ?? 3000),
   host: Bun.env.HOST ?? "0.0.0.0",
   statePath: fromRoot(Bun.env.STATE_PATH ?? "state/detections.json"),
+  dbPath: fromRoot(Bun.env.DB_PATH ?? "state/rcflower.db"),
   frontendDir: fromRoot("frontend"),
   frontendDist: fromRoot(Bun.env.FRONTEND_DIST ?? "frontend/dist"),
   viteHost: Bun.env.VITE_HOST ?? "127.0.0.1",

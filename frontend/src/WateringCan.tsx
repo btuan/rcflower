@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { rollAngle, tiltFromFlat, upInDevice } from "./orientation";
 import { useDeviceOrientation } from "./useDeviceOrientation";
 import { useTwistGesture } from "./useTwistGesture";
@@ -39,14 +39,37 @@ export default function WateringCan() {
     return () => clearInterval(id);
   }, [pouring]);
 
+  // Timestamp of the current pour's start, so we can log its duration on stop.
+  const pourStart = useRef<number | null>(null);
+
+  const logWatering = () => {
+    const start = pourStart.current;
+    pourStart.current = null;
+    const durationMs = start === null ? null : Date.now() - start;
+    void fetch("/api/water", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ trigger: "manual", durationMs }),
+    }).catch(() => {
+      // best-effort: a missed log shouldn't break the animation
+    });
+  };
+
   const handlers: TwistHandlers = useMemo(
     () => ({
       onTwist: () => {
         setTwists((n) => n + 1);
         setPouring(true);
+        pourStart.current = Date.now();
       },
-      onUntwist: () => setPouring(false),
-      onCancel: () => setPouring(false),
+      onUntwist: () => {
+        setPouring(false);
+        logWatering();
+      },
+      onCancel: () => {
+        setPouring(false);
+        logWatering();
+      },
     }),
     [],
   );

@@ -1,4 +1,5 @@
 import { isPersonInFrame, onPersonChange } from "./detections.ts";
+import { onWatering } from "./watering.ts";
 
 const encoder = new TextEncoder();
 
@@ -21,6 +22,7 @@ export function handleEvents(req: Request): Response {
       send("person", { inFrame: isPersonInFrame() });
 
       const off = onPersonChange((inFrame) => send("person", { inFrame }));
+      const offWatering = onWatering((event) => send("watering", event));
       // Comment line keeps proxies / load balancers from dropping the idle socket.
       const ping = setInterval(() => {
         try {
@@ -33,6 +35,7 @@ export function handleEvents(req: Request): Response {
       cleanup = () => {
         clearInterval(ping);
         off();
+        offWatering();
         try {
           controller.close();
         } catch {
