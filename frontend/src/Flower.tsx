@@ -6,6 +6,7 @@ import flowerHappy from "../../assets/FlowerHappy.png";
 export function Flower() {
   const [mood, setMood] = useState<"happy" | "sad" | "dead">("happy");
   const [flowerImg, setFlowerImg] = useState(flowerNeutral);
+  const [wateredAt, setWateredAt] = useState<number | null>(null);
 
   // SSE event listener responsible for changing mood
   useEffect(() => {
@@ -20,12 +21,18 @@ export function Flower() {
         const data = JSON.parse(e.data);
         console.log("data", data);
         setMood(data.inFrame ? "happy" : "sad");
+      } else if (event === "watering") {
+        const data = JSON.parse(e.data);
+        console.log("watering", data);
+        setMood("happy");
+        setWateredAt(data.wateredAt ?? Date.now());
       }
     };
 
     // Named events need their own listener; only unnamed ones hit onmessage.
     es.addEventListener("mood", push("mood"));
     es.addEventListener("person", push("person"));
+    es.addEventListener("watering", push("watering"));
     return () => es.close();
   }, []);
 
@@ -51,6 +58,9 @@ export function Flower() {
     <div>
       <h1>I'm a flower!</h1>
       <p>I am {mood}</p>
+      {wateredAt && (
+        <p>💧 watered {new Date(wateredAt).toLocaleTimeString()}</p>
+      )}
       <div>
         {mood === "dead" ? (
           <p>DEAD image is pending</p>
