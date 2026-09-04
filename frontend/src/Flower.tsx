@@ -3,8 +3,19 @@ import flowerNeutral from "../../assets/FlowerNeutral.png";
 import flowerSad from "../../assets/FlowerSad.png";
 import flowerHappy from "../../assets/FlowerHappy.png";
 
+// While happy, alternate the displayed image on this interval -- a light
+// "delighted" bounce rather than a static pose.
+const HAPPY_OSCILLATION_MS = 200;
+// FlowerHappy renders a touch bigger than FlowerNeutral each time it's the
+// one on screen, so the oscillation reads as a little pulse/bounce.
+const HAPPY_SCALE = 1.08;
+// Image should never take up more than 80% of the viewport's height. Cap the
+// base (unscaled) size below that so the happy pulse -- which scales up by
+// HAPPY_SCALE -- still peaks at exactly 80vh instead of overshooting it.
+const MAX_HEIGHT_VH = 80 / HAPPY_SCALE;
+
 export function Flower() {
-  const [mood, setMood] = useState<"happy" | "sad" | "dead">("happy");
+  const [mood, setMood] = useState<"happy" | "neutral" | "sad" | "dead">("neutral");
   const [flowerImg, setFlowerImg] = useState(flowerNeutral);
   const [wateredAt, setWateredAt] = useState<number | null>(null);
 
@@ -20,7 +31,7 @@ export function Flower() {
       } else if (event == "person") {
         const data = JSON.parse(e.data);
         console.log("data", data);
-        setMood(data.inFrame ? "happy" : "sad");
+        setMood(data.inFrame ? "happy" : "neutral");
       } else if (event === "watering") {
         const data = JSON.parse(e.data);
         console.log("watering", data);
@@ -38,19 +49,21 @@ export function Flower() {
 
   // Change image shown
   useEffect(() => {
-    if (mood === "happy") {
-      setFlowerImg(flowerHappy);
-    } else if (mood === "sad") {
-      setFlowerImg(flowerSad);
+    if (mood === "neutral") {
+      setFlowerImg(flowerNeutral);
+      return;
     }
+    if (mood === "sad") {
+      setFlowerImg(flowerSad);
+      return;
+    }
+    if (mood !== "happy") return; // "dead" -- handled directly in the render below
 
+    // Happy: oscillate between FlowerHappy and FlowerNeutral for a bit of life.
+    setFlowerImg(flowerHappy);
     const id = setInterval(() => {
-      if (mood === "happy") {
-        setFlowerImg((img) =>
-          img === flowerHappy ? flowerNeutral : flowerHappy,
-        );
-      }
-    }, 200);
+      setFlowerImg((img) => (img === flowerHappy ? flowerNeutral : flowerHappy));
+    }, HAPPY_OSCILLATION_MS);
     return () => clearInterval(id);
   }, [mood]);
 
@@ -65,7 +78,15 @@ export function Flower() {
         {mood === "dead" ? (
           <p>DEAD image is pending</p>
         ) : (
-          <img src={flowerImg} />
+          <img
+            src={flowerImg}
+            style={{
+              maxHeight: `${MAX_HEIGHT_VH}vh`,
+              maxWidth: "100%",
+              transform: `scale(${flowerImg === flowerHappy ? HAPPY_SCALE : 1})`,
+              transition: `transform ${HAPPY_OSCILLATION_MS}ms ease-in-out`,
+            }}
+          />
         )}
       </div>
     </div>

@@ -11,6 +11,9 @@ import json
 import os
 import tempfile
 import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 import cv2
@@ -21,6 +24,12 @@ from ai_edge_litert.interpreter import Interpreter
 MODEL_PATH = Path(__file__).parent / "models" / "yolov8n.tflite"
 LABELS_PATH = Path(__file__).parent / "models" / "coco.names"
 STATE_PATH = Path(__file__).parent.parent / "state" / "detections.json"
+BACKEND_URL = "http://127.0.0.1:3000/api/detections"
+
+
+def utc_ts() -> str:
+    """Current time as an ISO 8601 UTC timestamp, e.g. 2026-09-04T15:43:06.123Z."""
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def load_labels(path: Path) -> list[str]:
@@ -56,14 +65,30 @@ def postprocess(
     pad_top: int,
     conf_threshold: float,
     iou_threshold: float,
+    class_ids_filter: set[int] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """output: (1, 4 + num_classes, num_boxes) raw YOLOv8 head output."""
+    """output: (1, 4 + num_classes, num_boxes) raw YOLOv8 head output.
+
+    If `class_ids_filter` is given, only those classes are considered at all --
+    a box is scored by the best of *those* classes' confidences, not by
+    whichever class is highest overall. This is what we want when we only
+    care about e.g. `person`: a box that's 60% person and 65% chair should
+    still count as a person detection, not get dropped for not being the
+    argmax class.
+    """
     preds = output[0].T  # (num_boxes, 4 + num_classes)
     boxes_xywh = preds[:, :4]
     class_scores = preds[:, 4:]
 
-    class_ids = np.argmax(class_scores, axis=1)
-    confidences = class_scores[np.arange(len(class_scores)), class_ids]
+    if class_ids_filter:
+        cols = sorted(class_ids_filter)
+        filtered_scores = class_scores[:, cols]
+        best = np.argmax(filtered_scores, axis=1)
+        confidences = filtered_scores[np.arange(len(filtered_scores)), best]
+        class_ids = np.array(cols)[best]
+    else:
+        class_ids = np.argmax(class_scores, axis=1)
+        confidences = class_scores[np.arange(len(class_scores)), class_ids]
 
     keep = confidences >= conf_threshold
     boxes_xywh = boxes_xywh[keep]
@@ -115,15 +140,14 @@ def draw_detections(
         )
 
 
-def write_state(
-    path: Path,
+def build_state(
     boxes: np.ndarray,
     confidences: np.ndarray,
     class_ids: np.ndarray,
     labels: list[str],
-) -> None:
-    """Atomically write current detections + a unix timestamp to a JSON file."""
-    state = {
+) -> dict:
+    """Current detections + a unix timestamp, as JSON-serializable state."""
+    return {
         "timestamp": time.time(),
         "detections": [
             {
@@ -135,6 +159,9 @@ def write_state(
         ],
     }
 
+
+def write_state(path: Path, state: dict) -> None:
+    """Atomically write detection state to a JSON file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
@@ -146,6 +173,41 @@ def write_state(
         raise
 
 
+# Log throttling for post_state(): a POST fires every frame, but printing every
+# frame floods stdout. Log at most once/sec while detections are present, and
+# much less often (a quiet heartbeat) while the frame is empty. Failures are
+# never throttled -- those are worth seeing immediately.
+LOG_INTERVAL_WITH_DETECTIONS = 1.0
+LOG_INTERVAL_EMPTY = 30.0
+_last_log_time = {"nonempty": 0.0, "empty": 0.0}
+
+
+def post_state(url: str, state: dict, timeout: float = 1.0) -> None:
+    """POST detection state to the backend. Best-effort: logs and continues on failure."""
+    n = len(state["detections"])
+    bucket = "nonempty" if n else "empty"
+    interval = LOG_INTERVAL_WITH_DETECTIONS if n else LOG_INTERVAL_EMPTY
+    now = time.time()
+    should_log = now - _last_log_time[bucket] >= interval
+
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(state).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if should_log:
+                _last_log_time[bucket] = now
+                print(
+                    f"[{utc_ts()}] [detect] POST {url} -- {n} detection{'s' if n != 1 else ''} "
+                    f"-> {resp.status} {resp.reason}"
+                )
+    except (urllib.error.URLError, OSError) as e:
+        print(f"[{utc_ts()}] [detect] failed to POST state to {url}: {e}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--camera", type=int, default=0, help="Webcam device index")
@@ -153,10 +215,19 @@ def main() -> None:
     parser.add_argument("--labels", type=Path, default=LABELS_PATH)
     parser.add_argument("--conf", type=float, default=0.4, help="Confidence threshold")
     parser.add_argument("--iou", type=float, default=0.45, help="NMS IoU threshold")
+    parser.add_argument(
+        "--classes", type=str, default="person",
+        help="Comma-separated COCO labels to detect (see models/coco.names). "
+        "Empty string detects all 80 classes.",
+    )
     parser.add_argument("--width", type=int, default=640, help="Capture width")
     parser.add_argument("--height", type=int, default=480, help="Capture height")
     parser.add_argument("--threads", type=int, default=2, help="Interpreter CPU threads")
     parser.add_argument("--state-path", type=Path, default=STATE_PATH, help="Detection state JSON output path")
+    parser.add_argument(
+        "--backend-url", type=str, default=BACKEND_URL,
+        help="Backend URL to POST detection state to. Set to '' to disable.",
+    )
     parser.add_argument(
         "--headless", action="store_true",
         help="No GUI window -- just run detection and write --state-path",
@@ -164,6 +235,14 @@ def main() -> None:
     args = parser.parse_args()
 
     labels = load_labels(args.labels)
+
+    class_ids_filter: set[int] | None = None
+    if args.classes.strip():
+        wanted = {c.strip() for c in args.classes.split(",") if c.strip()}
+        class_ids_filter = {labels.index(c) for c in wanted if c in labels}
+        unknown = wanted - set(labels)
+        if unknown:
+            raise ValueError(f"Unknown class label(s): {', '.join(sorted(unknown))}")
 
     interpreter = Interpreter(model_path=str(args.model), num_threads=args.threads)
     interpreter.allocate_tensors()
@@ -184,7 +263,7 @@ def main() -> None:
         while True:
             ok, frame = cap.read()
             if not ok:
-                print("Failed to read frame from camera")
+                print(f"[{utc_ts()}] [detect] Failed to read frame from camera")
                 break
 
             tensor, scale, pad_left, pad_top = preprocess(frame, input_size)
@@ -193,9 +272,12 @@ def main() -> None:
             output = interpreter.get_tensor(output_details["index"])
 
             boxes, confidences, class_ids = postprocess(
-                output, scale, pad_left, pad_top, args.conf, args.iou
+                output, scale, pad_left, pad_top, args.conf, args.iou, class_ids_filter
             )
-            write_state(args.state_path, boxes, confidences, class_ids, labels)
+            state = build_state(boxes, confidences, class_ids, labels)
+            write_state(args.state_path, state)
+            if args.backend_url:
+                post_state(args.backend_url, state)
 
             now = time.time()
             fps = 0.9 * fps + 0.1 * (1.0 / max(now - prev_time, 1e-6))
