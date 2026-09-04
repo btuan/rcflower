@@ -1,0 +1,21 @@
+# Installed via deploy/install-systemd.sh -- edit this file, then re-run that
+# script (not `systemctl edit`) so the repo stays the source of truth.
+[Unit]
+Description=rcflower backend (Bun, dev mode -- hot-reloading, spawns Vite)
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/code/rcflower/backend
+# bunx (spawned internally to run Vite, see src/vite.ts) needs bun's bin dir on PATH.
+Environment=PATH=/home/pi/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/home/pi/.bun/bin/bun run dev
+Restart=on-failure
+RestartSec=3
+# stdout/stderr go to the journal -- `journalctl -u rcflower-backend -f`
+
+[Install]
+WantedBy=multi-user.target

@@ -1,4 +1,4 @@
-import { config } from "./config.ts";
+import { db } from "./db.ts";
 
 export type Detection = {
   label: string;
@@ -17,37 +17,54 @@ let current: DetectionState = EMPTY;
 let personInFrame = false;
 const listeners = new Set<(inFrame: boolean) => void>();
 
-async function readState(): Promise<DetectionState> {
-  try {
-    const data = (await Bun.file(config.statePath).json()) as unknown;
-    if (
-      data &&
-      typeof data === "object" &&
-      Array.isArray((data as DetectionState).detections)
-    ) {
-      return data as DetectionState;
-    }
-    return EMPTY;
-  } catch {
-    // File missing / mid-write / invalid JSON -- treat as no detections.
-    return EMPTY;
+const insertStateChangeStmt = db.query<
+  unknown,
+  { $key: string; $value: string }
+>(`INSERT INTO state_changes (key, value) VALUES ($key, $value)`);
+
+function isDetection(d: unknown): d is Detection {
+  if (!d || typeof d !== "object") return false;
+  const rec = d as Record<string, unknown>;
+  if (typeof rec.label !== "string") return false;
+  if (rec.confidence !== undefined && typeof rec.confidence !== "number") return false;
+  if (
+    rec.box !== undefined &&
+    !(Array.isArray(rec.box) && rec.box.every((v) => typeof v === "number"))
+  ) {
+    return false;
   }
+  return true;
 }
 
-async function poll(): Promise<void> {
-  current = await readState();
-  const next = current.detections.some((d) => d.label === "person");
+/** Validate an untyped payload as a DetectionState. Returns null if it doesn't match. */
+export function parseDetectionState(data: unknown): DetectionState | null {
+  if (!data || typeof data !== "object") return null;
+  const rec = data as Record<string, unknown>;
+  if (typeof rec.timestamp !== "number") return null;
+  if (!Array.isArray(rec.detections) || !rec.detections.every(isDetection)) return null;
+  return { timestamp: rec.timestamp, detections: rec.detections as Detection[] };
+}
+
+/**
+ * Apply a new detection state -- e.g. from POST /api/detections, sent by the
+ * Python vision service (or `curl`, for testing). Records a state_changes
+ * row and notifies SSE subscribers when `person_in_frame` flips.
+ *
+ * Returns the parsed state, or null if `data` didn't match the expected shape.
+ */
+export function ingestDetectionState(data: unknown): DetectionState | null {
+  const parsed = parseDetectionState(data);
+  if (!parsed) return null;
+
+  current = parsed;
+  const next = parsed.detections.some((d) => d.label === "person");
   if (next !== personInFrame) {
     personInFrame = next;
+    insertStateChangeStmt.run({ $key: "person_in_frame", $value: String(next) });
+    console.log(`[${new Date().toISOString()}] [detections] person_in_frame -> ${next}`);
     for (const fn of listeners) fn(next);
   }
-}
-
-/** Begin polling the detection state file. Returns a stop function. */
-export function watchDetections(): () => void {
-  void poll();
-  const timer = setInterval(() => void poll(), config.pollIntervalMs);
-  return () => clearInterval(timer);
+  return parsed;
 }
 
 export const getState = (): DetectionState => current;

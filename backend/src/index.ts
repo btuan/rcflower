@@ -1,12 +1,10 @@
 import { config } from "./config.ts";
 import "./db.ts";
-import { getState, watchDetections } from "./detections.ts";
+import { getState, ingestDetectionState, isPersonInFrame } from "./detections.ts";
 import { handleEvents } from "./sse.ts";
 import { recentWatering, recordWatering } from "./watering.ts";
 import { proxyToVite, serveStatic } from "./http.ts";
 import { startVite } from "./vite.ts";
-
-const stopWatch = watchDetections();
 
 if (config.dev) startVite();
 
@@ -38,6 +36,32 @@ async function handleWater(req: Request, server: Bun.Server<undefined>): Promise
   return Response.json(event, { status: 201 });
 }
 
+/**
+ * POST /api/detections -- ingest a detection state update from the Python
+ * vision service (or a manual `curl` for testing). Body:
+ * `{ timestamp: number, detections: { label, confidence?, box? }[] }`.
+ */
+async function handleDetections(req: Request): Promise<Response> {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ error: "invalid JSON body" }, { status: 400 });
+  }
+
+  const state = ingestDetectionState(body);
+  if (!state) {
+    return Response.json(
+      {
+        error:
+          "expected { timestamp: number, detections: { label: string, confidence?: number, box?: number[] }[] }",
+      },
+      { status: 400 },
+    );
+  }
+  return Response.json({ ok: true, personInFrame: isPersonInFrame() }, { status: 202 });
+}
+
 const server = Bun.serve({
   port: config.port,
   hostname: config.host,
@@ -51,7 +75,7 @@ const server = Bun.serve({
       case "/api/health":
         return Response.json({ ok: true, dev: config.dev });
       case "/api/detections":
-        return Response.json(getState());
+        return req.method === "POST" ? handleDetections(req) : Response.json(getState());
       case "/api/events":
         return handleEvents(req);
       case "/api/water":
@@ -72,5 +96,3 @@ console.log(
   `[backend] ${config.dev ? "dev" : "prod"} on http://${config.host}:${server.port}` +
     (config.dev ? ` (proxying to vite :${config.vitePort})` : ""),
 );
-
-process.on("exit", stopWatch);
