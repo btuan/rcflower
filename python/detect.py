@@ -1,9 +1,8 @@
 """
-Live object detection from a USB webcam using a TFLite YOLOv8n model.
+Live object detection from a USB webcam using a YOLOv8n NCNN model on Vulkan.
 
-Runs locally on Mac (via OpenCV + ai-edge-litert) as a stand-in for the
-Raspberry Pi 4B deployment target. Swap `ai_edge_litert` for `tflite_runtime`
-on the Pi if that's what's available there -- the Interpreter API is the same.
+This runs locally on a dev machine with OpenCV + NCNN, using the exported
+`yolov8n_ncnn_model` files under the same Python project directory.
 """
 
 import argparse
@@ -16,14 +15,18 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, cast
 
 import cv2
+import ncnn
 import numpy as np
+import yaml
 
-from ai_edge_litert.interpreter import Interpreter
+NCNN = cast(Any, ncnn)
 
-MODEL_PATH = Path(__file__).parent / "models" / "yolov8n.tflite"
-LABELS_PATH = Path(__file__).parent / "models" / "coco.names"
+MODEL_PATH = Path(__file__).parent / "yolov8n_ncnn_model" / "model.ncnn.param"
+MODEL_BIN_PATH = Path(__file__).parent / "yolov8n_ncnn_model" / "model.ncnn.bin"
+LABELS_PATH = Path(__file__).parent / "yolov8n_ncnn_model" / "metadata.yaml"
 STATE_PATH = Path(__file__).parent.parent / "state" / "detections.json"
 BACKEND_URL = "http://127.0.0.1:3000/api/detections"
 
@@ -34,7 +37,20 @@ def utc_ts() -> str:
 
 
 def load_labels(path: Path) -> list[str]:
-    return path.read_text().strip().splitlines()
+    """Load labels from a plain text list or from Ultralytics export metadata YAML."""
+    if path.suffix.lower() in {".yaml", ".yml"}:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        names = data.get("names")
+        if isinstance(names, dict):
+            ordered = []
+            for key in sorted(names, key=lambda item: int(item) if str(item).isdigit() else 999999):
+                ordered.append(names[key])
+            return ordered
+        if isinstance(names, list):
+            return names
+        raise ValueError(f"No label names found in metadata file: {path}")
+
+    return path.read_text(encoding="utf-8").strip().splitlines()
 
 
 def letterbox(frame: np.ndarray, size: int) -> tuple[np.ndarray, float, int, int]:
@@ -55,7 +71,7 @@ def preprocess(frame: np.ndarray, size: int) -> tuple[np.ndarray, float, int, in
     padded, scale, left, top = letterbox(frame, size)
     rgb = cv2.cvtColor(padded, cv2.COLOR_BGR2RGB)
     tensor = rgb.astype(np.float32) / 255.0
-    tensor = np.expand_dims(tensor, axis=0)
+    tensor = np.ascontiguousarray(np.transpose(tensor, (2, 0, 1)))  # HWC -> CHW
     return tensor, scale, left, top
 
 
@@ -77,7 +93,9 @@ def postprocess(
     still count as a person detection, not get dropped for not being the
     argmax class.
     """
-    preds = output[0].T  # (num_boxes, 4 + num_classes)
+    # NCNN exports a (84, 2100) tensor for YOLOv8: rows are features, columns are anchors.
+    # Transpose to (num_boxes, 4 + num_classes) before running the same NMS pipeline.
+    preds = output.T  # (num_boxes, 4 + num_classes)
     boxes_xywh = preds[:, :4]
     class_scores = preds[:, 4:]
 
@@ -292,8 +310,10 @@ def post_state(url: str, state: dict, timeout: float = 1.0) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--camera", type=int, default=0, help="Webcam device index")
-    parser.add_argument("--model", type=Path, default=MODEL_PATH)
-    parser.add_argument("--labels", type=Path, default=LABELS_PATH)
+    parser.add_argument("--model", type=Path, default=MODEL_PATH,
+                        help="Path to the NCNN .param export (default: yolov8n_ncnn_model/model.ncnn.param)")
+    parser.add_argument("--labels", type=Path, default=LABELS_PATH,
+                        help="Path to the model metadata YAML (default: yolov8n_ncnn_model/metadata.yaml)")
     parser.add_argument("--conf", type=float, default=0.4, help="Confidence threshold")
     parser.add_argument("--iou", type=float, default=0.45, help="NMS IoU threshold")
     parser.add_argument(
@@ -305,8 +325,7 @@ def main() -> None:
     parser.add_argument("--height", type=int, default=480, help="Capture height")
     parser.add_argument(
         "--threads", type=int, default=3,
-        help="Interpreter CPU threads. Pi 4B (4 cores) benchmark, 320px float32: "
-        "1=244ms 2=144ms 3=117ms 4=107ms; 3 leaves a core for the capture thread + backend.",
+        help="NCNN CPU thread count used for inference. Vulkan is enabled by default, so this is mostly for CPU fallback.",
     )
     parser.add_argument("--state-path", type=Path, default=STATE_PATH, help="Detection state JSON output path")
     parser.add_argument(
@@ -329,12 +348,17 @@ def main() -> None:
         if unknown:
             raise ValueError(f"Unknown class label(s): {', '.join(sorted(unknown))}")
 
-    interpreter = Interpreter(model_path=str(args.model), num_threads=args.threads)
-    interpreter.allocate_tensors()
-    input_details = interpreter.get_input_details()[0]
-    output_details = interpreter.get_output_details()[0]
-    input_size = input_details["shape"][1]  # square model input, e.g. 320
+    input_size = 320
+    if args.model.suffix.lower() == ".param":
+        model_bin = args.model.with_suffix(".bin")
+    else:
+        model_bin = args.model.parent / f"{args.model.stem}.bin"
 
+    net = NCNN.Net()
+    net.opt.use_vulkan_compute = True
+    net.opt.num_threads = args.threads
+    net.load_param(str(args.model))
+    net.load_model(str(model_bin))
     cap = cv2.VideoCapture(args.camera)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
@@ -356,9 +380,11 @@ def main() -> None:
             infer_started_at = time.time()  # captured_at -> here == frame age
 
             tensor, scale, pad_left, pad_top = preprocess(frame, input_size)
-            interpreter.set_tensor(input_details["index"], tensor)
-            interpreter.invoke()
-            output = interpreter.get_tensor(output_details["index"])
+            in_mat = NCNN.Mat(tensor).clone()
+            ex = net.create_extractor()
+            ex.input("in0", in_mat)
+            _, out = ex.extract("out0")
+            output = np.asarray(out)
 
             boxes, confidences, class_ids = postprocess(
                 output, scale, pad_left, pad_top, args.conf, args.iou, class_ids_filter
@@ -381,7 +407,7 @@ def main() -> None:
                     frame, f"FPS: {fps:.1f}", (10, 24),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA,
                 )
-                cv2.imshow("YOLOv8n TFLite - press q to quit", frame)
+                cv2.imshow("YOLOv8n NCNN - press q to quit", frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
     finally:

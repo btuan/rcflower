@@ -1,10 +1,9 @@
 """
-One-off helper to (re)generate models/yolov8n.tflite.
+One-off helper to (re)generate an OpenVINO IR model for the YOLOv8n detector.
 
 Not needed to run detect.py -- the exported model is already checked into
 models/. Re-run this only if you want a different YOLOv8 size/input
-resolution. Requires the extra dev deps: `pip install ultralytics onnx2tf
-onnx onnxslim sng4onnx onnx_graphsurgeon tensorflow`.
+resolution. Requires the dev deps: `pip install ultralytics openvino`.
 """
 
 import argparse
@@ -18,26 +17,33 @@ def main() -> None:
     parser.add_argument("--imgsz", type=int, default=320, help="Square input resolution")
     parser.add_argument(
         "--precision", choices=["float32", "float16"], default="float32",
-        help="float32 is more portable; float16 halves model size",
+        help="float32 is more portable; float16 can be faster on some hardware.",
     )
-    parser.add_argument("--out", type=Path, default=Path(__file__).parent / "models" / "yolov8n.tflite")
     args = parser.parse_args()
 
     from ultralytics import YOLO
 
     model = YOLO(args.weights)
-    onnx_path = model.export(format="onnx", imgsz=args.imgsz, simplify=True, opset=12)
+    exported = model.export(
+        format="ncnn",
+        imgsz=args.imgsz,
+        quantize=(16 if args.precision == "float16" else 32),
+        simplify=True,
+    )
 
-    import onnx2tf
+    exported_path = Path(exported)
+    # if exported_path.suffix.lower() != ".xml":
+    #     xml_matches = sorted(exported_path.glob("*.xml"))
+    #     if not xml_matches:
+    #         raise FileNotFoundError(f"No OpenVINO XML model was produced at {exported_path}")
+    #     exported_path = xml_matches[0]
 
-    out_dir = Path(onnx_path).with_suffix("") .as_posix() + "_saved_model"
-    onnx2tf.convert(input_onnx_file_path=onnx_path, output_folder_path=out_dir, output_signaturedefs=True)
+    # exported_bin = exported_path.with_suffix(".bin")
+    # if not exported_bin.exists():
+    #     raise FileNotFoundError(f"OpenVINO bin file not found next to {exported_path}")
 
-    stem = Path(onnx_path).stem
-    produced = Path(out_dir) / f"{stem}_{args.precision}.tflite"
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy(produced, args.out)
-    print(f"Wrote {args.out}")
+    print(f"Wrote {exported_path}")
+    # print(f"Wrote {exported_bin}")
 
 
 if __name__ == "__main__":

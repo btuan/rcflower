@@ -9,7 +9,13 @@ dependencies = [
   "numpy>=1.26",
   "ai-edge-litert>=2.2.0",
   "flask>=3.0",
+  "ncnn>=1.0.20260526",
 ]
 
 [tool.uv]
 package = false
+
+[dependency-groups]
+dev = [
+    "ultralytics>=8.4.144",
+]
