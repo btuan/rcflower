@@ -16,12 +16,24 @@ export async function serveStatic(req: Request): Promise<Response> {
   }
 
   const file = Bun.file(filePath);
-  if (await file.exists()) return new Response(file);
+  if (await file.exists()) {
+    // Vite's built assets are content-hashed (e.g. /assets/foo-abc123.js),
+    // so they're safe to cache forever -- a content change always means a
+    // new URL. Without this, hashed assets were re-validated on every
+    // request just like everything else.
+    const headers = pathname.startsWith("/assets/")
+      ? { "Cache-Control": "public, max-age=31536000, immutable" }
+      : undefined;
+    return new Response(file, { headers });
+  }
 
   const index = Bun.file(join(config.frontendDist, "index.html"));
   if (await index.exists()) {
     return new Response(index, {
-      headers: { "Content-Type": "text/html; charset=utf-8" },
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-cache",
+      },
     });
   }
   return new Response(
