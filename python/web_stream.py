@@ -1,5 +1,5 @@
 """
-Minimal web interface for the USB webcam + YOLOv8n TFLite detector.
+Minimal web interface for the USB webcam + YOLOv8n NCNN detector.
 
 Runs the same capture/inference/NMS pipeline as detect.py, but serves the
 annotated video as an MJPEG stream over HTTP instead of an OpenCV window --
@@ -10,9 +10,11 @@ the same network.
 import argparse
 import threading
 import time
+from typing import Any, cast
 
 import cv2
-from ai_edge_litert.interpreter import Interpreter
+import ncnn
+import numpy as np
 from flask import Flask, Response
 
 from detect import (
@@ -23,6 +25,8 @@ from detect import (
     postprocess,
     preprocess,
 )
+
+NCNN = cast(Any, ncnn)
 
 app = Flask(__name__)
 
@@ -52,11 +56,12 @@ def capture_loop(args: argparse.Namespace) -> None:
 
     labels = load_labels(args.labels)
 
-    interpreter = Interpreter(model_path=str(args.model), num_threads=args.threads)
-    interpreter.allocate_tensors()
-    input_details = interpreter.get_input_details()[0]
-    output_details = interpreter.get_output_details()[0]
-    input_size = input_details["shape"][1]
+    net = NCNN.Net()
+    net.opt.use_vulkan_compute = True
+    net.opt.num_threads = args.threads
+    net.load_param(str(args.model))
+    net.load_model(str(args.model.with_suffix(".bin")))
+    input_size = 320
 
     cap = cv2.VideoCapture(args.camera)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
@@ -75,9 +80,10 @@ def capture_loop(args: argparse.Namespace) -> None:
                 break
 
             tensor, scale, pad_left, pad_top = preprocess(frame, input_size)
-            interpreter.set_tensor(input_details["index"], tensor)
-            interpreter.invoke()
-            output = interpreter.get_tensor(output_details["index"])
+            ex = net.create_extractor()
+            ex.input("in0", NCNN.Mat(tensor).clone())
+            _, out = ex.extract("out0")
+            output = np.asarray(out)
 
             boxes, confidences, class_ids = postprocess(
                 output, scale, pad_left, pad_top, args.conf, args.iou
@@ -138,7 +144,7 @@ def main() -> None:
     parser.add_argument("--iou", type=float, default=0.45, help="NMS IoU threshold")
     parser.add_argument("--width", type=int, default=640, help="Capture width")
     parser.add_argument("--height", type=int, default=480, help="Capture height")
-    parser.add_argument("--threads", type=int, default=4, help="Interpreter CPU threads")
+    parser.add_argument("--threads", type=int, default=4, help="NCNN CPU thread count (Vulkan is enabled)")
     parser.add_argument("--host", default="0.0.0.0", help="Web server bind address")
     parser.add_argument("--port", type=int, default=8000, help="Web server port")
     args = parser.parse_args()
