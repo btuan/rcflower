@@ -21,6 +21,15 @@ const clientIp = (req: Request, server: Bun.Server<undefined>): string | null =>
 /** POST /api/water -- log a watering event and broadcast it over SSE. */
 async function handleWater(req: Request, server: Bun.Server<undefined>): Promise<Response> {
   let body: Record<string, unknown> = {};
+
+  const rawCookieHeader = req.headers.get("cookie");
+  const cookies = rawCookieHeader.split(";").reduce((acc, cookie) => {
+    const [key, value] = cookie.trim().split("=");
+    acc[key] = decodeURIComponent(value); // Decodes percent-encoding like %20 to spaces
+    return acc;
+  }, {});
+  const name = JSON.parse(cookies["user"]).name; // TODO: use this when record watering
+
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {

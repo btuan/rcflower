@@ -136,6 +136,20 @@ export default function WateringCan() {
         </button>
       )}
 
+      <button
+        onClick={logWatering}
+        style={{
+          fontSize: 18,
+          padding: "14px 22px",
+          borderRadius: 10,
+          border: "1px solid #ccc",
+          background: "white",
+          cursor: "pointer",
+        }}
+      >
+        Debug: Trigger water
+      </button>
+
       {error && (
         <p role="alert" style={{ color: "crimson", lineHeight: 1.5 }}>
           {error}
