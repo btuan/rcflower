@@ -1,22 +1,31 @@
 import { useEffect, useRef, useState } from "react";
-import { DEG, shortestDelta, upInDevice } from "./orientation";
+import {
+  DEFAULT_TWIST_OPTIONS,
+  initialTwistState,
+  step,
+  type TwistDirection,
+  type TwistPhase,
+  type TwistState,
+} from "./twistMachine";
 
-export type TwistPhase = "idle" | "armed" | "fired";
+export type { TwistPhase, TwistDirection };
 
 export type TwistHandlers = {
   onTwist?: () => void;
   onUntwist?: () => void;
-  /** Armed but abandoned, or the pose was lost mid-gesture. */
+  /** A pour was in progress and got cancelled (pose lost mid-pour). */
   onCancel?: () => void;
 };
 
 export type TwistOptions = {
   armRoll?: number;
   armFacing?: number;
+  fireFacing?: number;
   fireRoll?: number;
   resetRoll?: number;
   maxMs?: number;
   smoothing?: number;
+  direction?: TwistDirection;
 };
 
 export function useTwistGesture(
@@ -25,12 +34,14 @@ export function useTwistGesture(
   options: TwistOptions = {},
 ) {
   const {
-    armRoll = 20,
-    armFacing = 0.35,
-    fireRoll = 60,
-    resetRoll = 25,
-    maxMs = 1500,
-    smoothing = 0.2,
+    armRoll = DEFAULT_TWIST_OPTIONS.armRoll,
+    armFacing = DEFAULT_TWIST_OPTIONS.armFacing,
+    fireFacing = DEFAULT_TWIST_OPTIONS.fireFacing,
+    fireRoll = DEFAULT_TWIST_OPTIONS.fireRoll,
+    resetRoll = DEFAULT_TWIST_OPTIONS.resetRoll,
+    maxMs = DEFAULT_TWIST_OPTIONS.maxMs,
+    smoothing = DEFAULT_TWIST_OPTIONS.smoothing,
+    direction = DEFAULT_TWIST_OPTIONS.direction,
   } = options;
 
   const cb = useRef(handlers);
@@ -39,94 +50,49 @@ export function useTwistGesture(
   const [phase, setPhase] = useState<TwistPhase>("idle");
   const [progress, setProgress] = useState(0);
 
-  const phaseRef = useRef<TwistPhase>("idle");
-  const accum = useRef(0);
-  const lastRoll = useRef<number | null>(null);
-  const armedAt = useRef(0);
-  const smooth = useRef<{ x: number; y: number } | null>(null);
+  const machine = useRef<TwistState>(initialTwistState);
   const frame = useRef<number | null>(null);
 
   useEffect(() => {
     if (!active) return;
 
-    const setPhaseBoth = (next: TwistPhase) => {
-      if (phaseRef.current === next) return;
-      phaseRef.current = next;
-      setPhase(next);
+    machine.current = initialTwistState;
+
+    const opts = {
+      armRoll,
+      armFacing,
+      fireFacing,
+      fireRoll,
+      resetRoll,
+      maxMs,
+      smoothing,
+      direction,
     };
 
-    const publishProgress = () => {
+    const publish = () => {
       if (frame.current !== null) return;
       frame.current = requestAnimationFrame(() => {
         frame.current = null;
-        const p = Math.max(0, Math.min(1, accum.current / fireRoll));
-        setProgress(p);
+        setPhase(machine.current.phase);
+        setProgress(machine.current.progress);
       });
     };
 
     const handle = (event: DeviceOrientationEvent) => {
       if (event.beta === null || event.gamma === null) return;
 
-      const u = upInDevice(event.beta, event.gamma);
+      const { state, events } = step(
+        machine.current,
+        { beta: event.beta, gamma: event.gamma, t: performance.now() },
+        opts,
+      );
+      machine.current = state;
+      publish();
 
-      if (smooth.current === null) {
-        smooth.current = { x: u.x, y: u.y };
-      } else {
-        smooth.current = {
-          x: smooth.current.x + smoothing * (u.x - smooth.current.x),
-          y: smooth.current.y + smoothing * (u.y - smooth.current.y),
-        };
-      }
-
-      const roll = Math.atan2(smooth.current.x, smooth.current.y) / DEG;
-
-      if (lastRoll.current === null) lastRoll.current = roll;
-      const delta = shortestDelta(roll, lastRoll.current);
-      lastRoll.current = roll;
-
-      const facing = Math.abs(u.z) < armFacing;
-      const now = performance.now();
-
-      switch (phaseRef.current) {
-        case "idle":
-          if (facing && Math.abs(roll) < armRoll) {
-            accum.current = 0;
-            armedAt.current = now;
-            setPhaseBoth("armed");
-            publishProgress();
-          }
-          break;
-
-        case "armed":
-          accum.current += delta;
-          publishProgress();
-          if (
-            !facing ||
-            accum.current < -resetRoll ||
-            now - armedAt.current > maxMs
-          ) {
-            accum.current = 0;
-            setPhaseBoth("idle");
-            cb.current.onCancel?.();
-          } else if (accum.current > fireRoll) {
-            setPhaseBoth("fired");
-            cb.current.onTwist?.();
-          }
-          break;
-
-        case "fired":
-          accum.current += delta;
-          publishProgress();
-          if (!facing) {
-            accum.current = 0;
-            setPhaseBoth("idle");
-            cb.current.onCancel?.();
-          } else if (accum.current < resetRoll) {
-            accum.current = 0;
-            setPhaseBoth("idle");
-            cb.current.onUntwist?.();
-          }
-          break;
+      for (const e of events) {
+        if (e === "twist") cb.current.onTwist?.();
+        else if (e === "untwist") cb.current.onUntwist?.();
+        else if (e === "cancel") cb.current.onCancel?.();
       }
     };
 
@@ -135,14 +101,21 @@ export function useTwistGesture(
       window.removeEventListener("deviceorientation", handle);
       if (frame.current !== null) cancelAnimationFrame(frame.current);
       frame.current = null;
-      lastRoll.current = null;
-      smooth.current = null;
-      accum.current = 0;
-      phaseRef.current = "idle";
+      machine.current = initialTwistState;
       setPhase("idle");
       setProgress(0);
     };
-  }, [active, armRoll, armFacing, fireRoll, resetRoll, maxMs, smoothing]);
+  }, [
+    active,
+    armRoll,
+    armFacing,
+    fireFacing,
+    fireRoll,
+    resetRoll,
+    maxMs,
+    smoothing,
+    direction,
+  ]);
 
   return { phase, progress };
 }

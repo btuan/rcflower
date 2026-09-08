@@ -1,0 +1,16 @@
+{
+  "name": "rcflower",
+  "short_name": "rcflower",
+  "start_url": "/watering-can",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f1efe8",
+  "theme_color": "#1d9e75",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
