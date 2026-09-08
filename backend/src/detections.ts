@@ -91,7 +91,17 @@ export function ingestDetectionState(data: unknown): DetectionState | null {
   };
 
   current = parsed;
-  const next = parsed.detections.some((d) => d.label === "person");
+  const detected = parsed.detections.some((d) => d.label === "person");
+  applyPersonState(detected, timing);
+  return parsed;
+}
+
+/**
+ * Resolve the effective person_in_frame (real detection OR an active debug
+ * override), record a latency sample, and broadcast if it flipped.
+ */
+function applyPersonState(detected: boolean, timing: StateTiming): void {
+  const next = detected || isOverrideActive();
   const transition = next !== personInFrame;
 
   recordSample({
@@ -112,7 +122,47 @@ export function ingestDetectionState(data: unknown): DetectionState | null {
     markLastBroadcast(broadcastAt);
     for (const fn of listeners) fn(next, { ...timing, broadcastAt } as StateTiming & { broadcastAt: number });
   }
-  return parsed;
+}
+
+// --- Debug override: force person_in_frame=true for a while -----------------
+// Lets /debug exercise the flower / latency UI without a live person in front
+// of the camera. Real frames keep flowing (and keep feeding latency samples);
+// they just can't flip the state back to false until the override expires.
+
+let overrideUntil = 0;
+let overrideTimer: ReturnType<typeof setTimeout> | null = null;
+
+const isOverrideActive = (): boolean => Date.now() < overrideUntil;
+
+/** Milliseconds left on the override, 0 if none. */
+export const overrideRemainingMs = (): number => Math.max(0, overrideUntil - Date.now());
+
+/**
+ * Force person_in_frame for `seconds` (0 clears an existing override).
+ * Broadcasts immediately, and again when the override expires if no real
+ * person is in frame at that point.
+ */
+export function simulatePerson(seconds: number): void {
+  if (overrideTimer) clearTimeout(overrideTimer);
+  overrideTimer = null;
+  overrideUntil = seconds > 0 ? Date.now() + seconds * 1000 : 0;
+
+  const now = Date.now();
+  const synthetic: StateTiming = { capturedAt: now, inferredAt: now, sentAt: now, receivedAt: now };
+  const realDetected = current.detections.some((d) => d.label === "person");
+  console.log(
+    `[${new Date().toISOString()}] [detections] debug override ${seconds > 0 ? `on for ${seconds}s` : "cleared"}`,
+  );
+  applyPersonState(realDetected, synthetic);
+
+  if (seconds > 0) {
+    overrideTimer = setTimeout(() => {
+      overrideTimer = null;
+      const t = Date.now();
+      const stillDetected = current.detections.some((d) => d.label === "person");
+      applyPersonState(stillDetected, { capturedAt: t, inferredAt: t, sentAt: t, receivedAt: t });
+    }, seconds * 1000 + 5);
+  }
 }
 
 export const getState = (): DetectionState => current;

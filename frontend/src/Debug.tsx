@@ -99,6 +99,100 @@ function StatsTable({ stats }: { stats: StageStats[] }) {
   );
 }
 
+type SimulateStatus = { personInFrame: boolean; overrideRemainingMs: number };
+
+/**
+ * Button + duration input that asks the backend to force person_in_frame for
+ * N seconds, so the flower / latency UI can be exercised without a live
+ * person in front of the camera. Polls the remaining time while active.
+ */
+function SimulatePerson() {
+  const [seconds, setSeconds] = useState(10);
+  const [remainingMs, setRemainingMs] = useState(0);
+  const [busy, setBusy] = useState(false);
+
+  const post = async (secs: number) => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/debug/simulate-person", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seconds: secs }),
+      });
+      const data = (await res.json()) as SimulateStatus;
+      setRemainingMs(data.overrideRemainingMs);
+    } catch {
+      // best-effort
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Poll the server for the countdown (cheap, and also picks up an override
+  // started from another tab or curl).
+  useEffect(() => {
+    let cancelled = false;
+    const sync = () =>
+      fetch("/api/debug/simulate-person")
+        .then((r) => r.json())
+        .then((d: SimulateStatus) => {
+          if (!cancelled) setRemainingMs(d.overrideRemainingMs);
+        })
+        .catch(() => {});
+    sync();
+    const id = setInterval(sync, 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  const active = remainingMs > 0;
+  return (
+    <div className="mb-6 flex flex-wrap items-center gap-3 rounded border border-neutral-700 p-3">
+      <span className="font-bold">simulate person</span>
+      <label className="flex items-center gap-1 text-neutral-300">
+        for
+        <input
+          type="number"
+          min={1}
+          max={3600}
+          value={seconds}
+          onChange={(e) => setSeconds(Math.max(1, Number(e.target.value) || 1))}
+          className="w-20 rounded border border-neutral-600 bg-neutral-900 px-2 py-1 text-neutral-100"
+        />
+        s
+      </label>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void post(seconds)}
+        className="rounded bg-emerald-700 px-3 py-1 font-bold hover:bg-emerald-600 disabled:opacity-50"
+      >
+        {active ? "extend" : "trigger"}
+      </button>
+      {active && (
+        <>
+          <span className="rounded bg-emerald-900 px-2 py-0.5">
+            in frame · {Math.ceil(remainingMs / 1000)}s left
+          </span>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void post(0)}
+            className="rounded bg-neutral-700 px-3 py-1 hover:bg-neutral-600 disabled:opacity-50"
+          >
+            clear
+          </button>
+        </>
+      )}
+      <span className="text-neutral-500">
+        forces person_in_frame=true on the backend; real frames can't flip it back until it expires
+      </span>
+    </div>
+  );
+}
+
 export function Debug() {
   const [status, setStatus] = useState("connecting…");
   const [clock, setClock] = useState<{ offsetMs: number; rttMs: number } | null>(null);
@@ -180,6 +274,8 @@ export function Debug() {
         {clock ? `${clock.offsetMs.toFixed(0)} ms (browser ahead if positive)` : "estimating…"} ·
         RTT: {clock ? `${clock.rttMs.toFixed(0)} ms` : "—"}
       </p>
+
+      <SimulatePerson />
 
       <h2 className="mb-2 mt-6 font-bold">per-frame stage stats (last 300 samples)</h2>
       {latency ? <StatsTable stats={latency.stats} /> : <p>loading…</p>}
