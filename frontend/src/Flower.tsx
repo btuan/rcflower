@@ -129,7 +129,11 @@ export function Flower() {
       {wateredAt && (
         <p>💧 watered {new Date(wateredAt).toLocaleTimeString()}</p>
       )}
-      <div>
+      {/* All frames stay mounted (stacked in one grid cell) so switching
+          moods never triggers a new image request; only visibility toggles.
+          Using visibility rather than display keeps the transform transition
+          animating on the happy pulse. */}
+      <div style={{ display: "grid", justifyItems: "center" }}>
         {(["neutral", "sad", "happy", "dead"] as const).map((frame) => (
           <img
             key={frame}
@@ -138,7 +142,8 @@ export function Flower() {
             sizes={IMG_SIZES}
             alt={`A ${frame} flower`}
             style={{
-              display: frame === visibleFrame ? "block" : "none",
+              gridArea: "1 / 1",
+              visibility: frame === visibleFrame ? "visible" : "hidden",
               maxHeight: `${MAX_HEIGHT_VH}vh`,
               maxWidth: "100%",
               transform: `scale(${frame === "happy" && visibleFrame === "happy" ? HAPPY_SCALE : 1})`,
