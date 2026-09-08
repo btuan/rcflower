@@ -15,19 +15,31 @@ Notes for agents (and humans) working in this repo.
 ## How the pieces talk
 
 ```
-python/detect.py --headless   ->  state/detections.json  ->  backend  ->  GET /api/events (SSE)  ->  frontend
+python/detect.py --headless  ->  POST /api/detections  ->  backend  ->  GET /api/events (SSE)  ->  frontend
 ```
 
-- The backend polls `state/detections.json` (200 ms) and pushes a `person`
-  event `{ inFrame: boolean }` on change. This file-poll IPC is a placeholder;
-  a proper channel to the Python service replaces it later.
+- `python/detect.py` POSTs its per-frame detection state straight to the
+  backend (`POST /api/detections`, best-effort -- logs and continues on
+  failure). It also still writes `state/detections.json` for local
+  inspection, but nothing reads that file anymore; the HTTP POST is the real
+  IPC channel.
+- The backend ingests each POST (`ingestDetectionState` in
+  `backend/src/detections.ts`) and pushes a `person` SSE event
+  (`{ inFrame: boolean, t: {...} }`) only when `person_in_frame` flips.
 - Detection always stays a separate Python service. The backend never runs CV.
+- Latency across the pipeline (capture -> infer -> sent -> received ->
+  broadcast -> browser) is tracked in `backend/src/latency.ts` (in-memory ring
+  buffer) and surfaced at `/debug` in the frontend
+  (`GET /api/debug/latency`, `GET /api/time`). Python and the backend share a
+  clock (same Pi); the browser is a separate device, so `/debug` estimates
+  the clock offset itself (NTP-style probe of `/api/time`).
 
 ## Backend
 
-- Entry: `backend/src/index.ts`. Routes: `/api/health`, `/api/detections`,
-  `/api/events` (SSE). Anything else: dev -> reverse-proxy to Vite; prod ->
-  serve `frontend/dist` with SPA fallback.
+- Entry: `backend/src/index.ts`. Routes: `/api/health`, `/api/time`,
+  `/api/detections`, `/api/events` (SSE), `/api/water`, `/api/debug/latency`.
+  See `backend/README.md` for the full route list. Anything else: dev ->
+  reverse-proxy to Vite; prod -> serve `frontend/dist` with SPA fallback.
 - Config: `backend/.env` (committed defaults), override per-machine in
   `backend/.env.local` (gitignored). Bun auto-loads both from the cwd, so run
   bun commands from `backend/`.

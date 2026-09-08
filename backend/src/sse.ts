@@ -21,7 +21,18 @@ export function handleEvents(req: Request): Response {
 
       send("person", { inFrame: isPersonInFrame() });
 
-      const off = onPersonChange((inFrame) => send("person", { inFrame }));
+      const off = onPersonChange((inFrame, timing) =>
+        send("person", {
+          inFrame,
+          t: {
+            capturedAt: timing.capturedAt,
+            inferredAt: timing.inferredAt,
+            sentAt: timing.sentAt,
+            receivedAt: timing.receivedAt,
+            broadcastAt: timing.broadcastAt,
+          },
+        }),
+      );
       const offWatering = onWatering((event) => send("watering", event));
       // Comment line keeps proxies / load balancers from dropping the idle socket.
       const ping = setInterval(() => {

@@ -1,6 +1,7 @@
 import { config } from "./config.ts";
 import "./db.ts";
 import { getState, ingestDetectionState, isPersonInFrame } from "./detections.ts";
+import { getSamples, getStats } from "./latency.ts";
 import { handleEvents } from "./sse.ts";
 import { recentWatering, recordWatering } from "./watering.ts";
 import { proxyToVite, serveStatic } from "./http.ts";
@@ -83,6 +84,8 @@ const server = Bun.serve({
     switch (pathname) {
       case "/api/health":
         return Response.json({ ok: true, dev: config.dev });
+      case "/api/time":
+        return Response.json({ now: Date.now() });
       case "/api/detections":
         return req.method === "POST" ? handleDetections(req) : Response.json(getState());
       case "/api/events":
@@ -91,6 +94,8 @@ const server = Bun.serve({
         return req.method === "POST"
           ? handleWater(req, server)
           : Response.json(recentWatering());
+      case "/api/debug/latency":
+        return Response.json({ samples: getSamples(), stats: getStats() });
     }
 
     if (pathname.startsWith("/api/")) {
