@@ -145,10 +145,22 @@ def build_state(
     confidences: np.ndarray,
     class_ids: np.ndarray,
     labels: list[str],
+    captured_at: float,
+    inferred_at: float,
 ) -> dict:
-    """Current detections + a unix timestamp, as JSON-serializable state."""
+    """Current detections + timing, as JSON-serializable state.
+
+    `timestamp` is kept for backward compatibility (equal to `capturedAt`).
+    `capturedAt`/`inferredAt` are stamped by the caller around `cap.read()`
+    and postprocess; `sentAt` is stamped just before the POST in
+    `post_state()`, since that's the last moment before it leaves this
+    process -- all three are unix seconds (`time.time()`), same clock as the
+    backend (Python + backend run on the same Pi).
+    """
     return {
-        "timestamp": time.time(),
+        "timestamp": captured_at,
+        "capturedAt": captured_at,
+        "inferredAt": inferred_at,
         "detections": [
             {
                 "label": labels[cls_id] if cls_id < len(labels) else str(cls_id),
@@ -189,6 +201,11 @@ def post_state(url: str, state: dict, timeout: float = 1.0) -> None:
     interval = LOG_INTERVAL_WITH_DETECTIONS if n else LOG_INTERVAL_EMPTY
     now = time.time()
     should_log = now - _last_log_time[bucket] >= interval
+
+    # Stamped right before serialization -- the last moment before this
+    # state leaves the process, for the capture->infer->sent->received
+    # latency breakdown surfaced on the /debug page.
+    state = {**state, "sentAt": time.time()}
 
     req = urllib.request.Request(
         url,
@@ -262,6 +279,7 @@ def main() -> None:
     try:
         while True:
             ok, frame = cap.read()
+            captured_at = time.time()
             if not ok:
                 print(f"[{utc_ts()}] [detect] Failed to read frame from camera")
                 break
@@ -274,7 +292,8 @@ def main() -> None:
             boxes, confidences, class_ids = postprocess(
                 output, scale, pad_left, pad_top, args.conf, args.iou, class_ids_filter
             )
-            state = build_state(boxes, confidences, class_ids, labels)
+            inferred_at = time.time()
+            state = build_state(boxes, confidences, class_ids, labels, captured_at, inferred_at)
             write_state(args.state_path, state)
             if args.backend_url:
                 post_state(args.backend_url, state)

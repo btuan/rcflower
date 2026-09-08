@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router";
 import WateringCan from "./WateringCan.tsx";
 import { Flower } from "./Flower.tsx";
 import { SseDemo } from "./SseDemo.tsx";
+import { Debug } from "./Debug.tsx";
 
 console.log(Flower);
 createRoot(document.getElementById("root")!).render(
@@ -16,6 +17,7 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/watering-can" element={<WateringCan />} />
         <Route path="/flower" element={<Flower />} />
         <Route path="/sse" element={<SseDemo />} />
+        <Route path="/debug" element={<Debug />} />
       </Routes>
     </BrowserRouter>
   </StrictMode>,
