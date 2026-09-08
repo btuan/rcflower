@@ -2,10 +2,23 @@ import type { Subprocess } from "bun";
 import { config } from "./config.ts";
 
 /**
- * Spawn the Vite dev server as a child process. The Bun server proxies HTTP to
- * it; HMR_CLIENT_PORT tells Vite's client to open its HMR websocket straight to
- * Vite (Bun doesn't proxy websockets), so the browser only ever types the Bun
- * port for normal requests.
+ * DEV ONLY. Spawn Vite as an internal child process that compiles the
+ * frontend (TSX, Tailwind, React Compiler) and serves hot-module reloads.
+ *
+ * Vite is NOT the app server and you should never open its port directly:
+ *   - it binds to 127.0.0.1 only (VITE_HOST), so it isn't reachable from
+ *     other machines anyway;
+ *   - it runs with --logLevel warn so it prints no "Local: http://..." banner
+ *     of its own -- the only URL printed at startup is the Bun one;
+ *   - the Bun server (PORT, default 3000) proxies every non-/api request to
+ *     it, so the browser only ever talks to Bun.
+ *
+ * The one exception is the HMR websocket: Bun doesn't proxy websockets, so
+ * HMR_CLIENT_PORT tells Vite's browser client to open that socket straight
+ * to Vite's port. That's transparent to the developer.
+ *
+ * In production there is no Vite process at all: `bun run build:frontend`
+ * runs `vite build` once and Bun serves the static output (see http.ts).
  */
 export function startVite(): Subprocess {
   const proc = Bun.spawn(
@@ -17,6 +30,12 @@ export function startVite(): Subprocess {
       "--port",
       String(config.vitePort),
       "--strictPort",
+      "--clearScreen",
+      "false",
+      // Suppress Vite's startup banner + per-request chatter; warnings and
+      // errors (the only Vite output a developer needs) still come through.
+      "--logLevel",
+      "warn",
     ],
     {
       cwd: config.frontendDir,

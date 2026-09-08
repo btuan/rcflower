@@ -46,16 +46,22 @@ curl -i localhost:3000/api/detections \
 
 ## Run
 
+Both modes: the app is `http://localhost:3000`. That is the only port you open.
+
 ```sh
 bun install
 
-# dev: spawns Vite as a child and proxies to it (HMR intact). One command.
-bun run dev            # http://localhost:3000
+# dev: :3000. Spawns Vite as an internal child (127.0.0.1:5173, silent) purely
+# to compile the frontend + hot reload; every non-/api request is proxied to
+# it. Don't open 5173 -- there are no /api routes there.
+bun run dev
 
-# prod: build the frontend, then serve it
+# prod: :3000, no Vite process. Build the static frontend once, then serve it.
 bun run build:frontend
 bun run start
 ```
+
+See "One server, one port" in the root README for the why.
 
 Config is in `.env` (committed defaults); override per-machine in `.env.local`
 (gitignored). TLS is expected to be terminated by a reverse proxy in front

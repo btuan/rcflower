@@ -136,7 +136,19 @@ const server = Bun.serve({
   },
 });
 
-console.log(
-  `[backend] ${config.dev ? "dev" : "prod"} on http://${config.host}:${server.port}` +
-    (config.dev ? ` (proxying to vite :${config.vitePort})` : ""),
-);
+const openHost = config.host === "0.0.0.0" ? "localhost" : config.host;
+const url = `http://${openHost}:${server.port}`;
+if (config.dev) {
+  console.log(
+    [
+      "",
+      `[backend] DEV  ->  open ${url}`,
+      `[backend]   /api/*  handled here (Bun)`,
+      `[backend]   /*      proxied to Vite, an internal child process on 127.0.0.1:${config.vitePort}`,
+      `[backend]           (compiles TSX/Tailwind + hot reload; never open that port directly)`,
+      "",
+    ].join("\n"),
+  );
+} else {
+  console.log(`[backend] PROD  ->  ${url}  (serving ${config.frontendDist}; no Vite process)`);
+}
