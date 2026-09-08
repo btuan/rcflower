@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { rollAngle, tiltFromFlat, upInDevice } from "./orientation";
 import { useDeviceOrientation } from "./useDeviceOrientation";
+import { useLockPortrait } from "./useLockPortrait";
 import { useTwistGesture } from "./useTwistGesture";
 import type { TwistHandlers } from "./useTwistGesture";
 import wateringCanUpright from "./assets/WateringCan/WateringCanUpright.png";
@@ -22,6 +23,16 @@ const PHASE_LABEL: Record<string, string> = {
 export default function WateringCan() {
   const { permission, error, listening, orientation, start } =
     useDeviceOrientation();
+
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const { status: lockStatus, requestLock } = useLockPortrait(rootRef);
+
+  const handleStart = () => {
+    // Both the fullscreen request and screen.orientation.lock() require a
+    // direct user gesture, so fire this from the same click as `start()`.
+    void requestLock();
+    void start();
+  };
 
   const [twists, setTwists] = useState(0);
   const [pouring, setPouring] = useState(false);
@@ -93,10 +104,21 @@ export default function WateringCan() {
     ["roll", fmt(roll)],
     ["tilt", fmt(tilt)],
     ["phase", phase],
+    ["screen.orientation.type", lockStatus.orientationType ?? "—"],
+    ["screen.orientation.angle", fmt(lockStatus.orientationAngle, 0)],
+    [
+      "lock",
+      lockStatus.locked
+        ? "native"
+        : lockStatus.fallbackActive
+          ? "css fallback"
+          : "none",
+    ],
   ];
 
   return (
     <div
+      ref={rootRef}
       style={{
         fontFamily: "system-ui, sans-serif",
         padding: 20,
@@ -122,7 +144,7 @@ export default function WateringCan() {
 
       {!listening && (
         <button
-          onClick={start}
+          onClick={handleStart}
           style={{
             fontSize: 18,
             padding: "14px 22px",
