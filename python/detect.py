@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -140,12 +141,74 @@ def draw_detections(
         )
 
 
+class LatestFrameGrabber:
+    """Background thread that drains the camera continuously and keeps only the newest frame.
+
+    Why: with a plain `cap.read()` in the inference loop, V4L2 queues frames
+    (4 deep on the Pi) faster than we consume them (~6 fps vs 30 fps), so
+    `read()` returns instantly with the *oldest* buffered frame -- ~100-130 ms
+    stale, and invisible to any timestamp taken after `read()` returns.
+    `CAP_PROP_BUFFERSIZE` is ignored by the V4L2 backend, so the only robust
+    fix is to read at sensor rate on a separate thread (OpenCV releases the
+    GIL inside `read()`) and let inference grab whatever is newest. A frame is
+    then at most ~one sensor period old when inference starts, and
+    `captured_at` is stamped the moment the driver handed it over.
+    """
+
+    def __init__(self, cap: cv2.VideoCapture) -> None:
+        self._cap = cap
+        self._cond = threading.Condition()
+        self._frame: np.ndarray | None = None
+        self._captured_at = 0.0
+        self._seq = 0
+        self._consumed_seq = 0
+        self._failed = False
+        self.dropped = 0  # frames read but never inferred (expected: most of them)
+        self._thread = threading.Thread(target=self._run, name="camera-grab", daemon=True)
+
+    def start(self) -> "LatestFrameGrabber":
+        self._thread.start()
+        return self
+
+    def _run(self) -> None:
+        while True:
+            ok, frame = self._cap.read()
+            captured_at = time.time()
+            with self._cond:
+                if not ok:
+                    self._failed = True
+                    self._cond.notify_all()
+                    return
+                if self._seq != self._consumed_seq:
+                    self.dropped += 1
+                self._frame = frame
+                self._captured_at = captured_at
+                self._seq += 1
+                self._cond.notify_all()
+
+    def latest(self, timeout: float = 5.0) -> tuple[np.ndarray, float] | None:
+        """Block until a frame newer than the last one returned is available.
+
+        Returns (frame, captured_at), or None if the camera failed / timed out.
+        """
+        with self._cond:
+            if not self._cond.wait_for(
+                lambda: self._failed or self._seq != self._consumed_seq, timeout=timeout
+            ):
+                return None
+            if self._failed or self._frame is None:
+                return None
+            self._consumed_seq = self._seq
+            return self._frame, self._captured_at
+
+
 def build_state(
     boxes: np.ndarray,
     confidences: np.ndarray,
     class_ids: np.ndarray,
     labels: list[str],
     captured_at: float,
+    infer_started_at: float,
     inferred_at: float,
 ) -> dict:
     """Current detections + timing, as JSON-serializable state.
@@ -160,6 +223,7 @@ def build_state(
     return {
         "timestamp": captured_at,
         "capturedAt": captured_at,
+        "inferStartedAt": infer_started_at,
         "inferredAt": inferred_at,
         "detections": [
             {
@@ -273,16 +337,19 @@ def main() -> None:
     if not cap.isOpened():
         raise RuntimeError(f"Could not open camera index {args.camera}")
 
+    grabber = LatestFrameGrabber(cap).start()
+
     fps = 0.0
     prev_time = time.time()
 
     try:
         while True:
-            ok, frame = cap.read()
-            captured_at = time.time()
-            if not ok:
+            got = grabber.latest()
+            if got is None:
                 print(f"[{utc_ts()}] [detect] Failed to read frame from camera")
                 break
+            frame, captured_at = got
+            infer_started_at = time.time()  # captured_at -> here == frame age
 
             tensor, scale, pad_left, pad_top = preprocess(frame, input_size)
             interpreter.set_tensor(input_details["index"], tensor)
@@ -293,7 +360,9 @@ def main() -> None:
                 output, scale, pad_left, pad_top, args.conf, args.iou, class_ids_filter
             )
             inferred_at = time.time()
-            state = build_state(boxes, confidences, class_ids, labels, captured_at, inferred_at)
+            state = build_state(
+                boxes, confidences, class_ids, labels, captured_at, infer_started_at, inferred_at
+            )
             write_state(args.state_path, state)
             if args.backend_url:
                 post_state(args.backend_url, state)

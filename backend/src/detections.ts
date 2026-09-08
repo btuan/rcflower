@@ -12,6 +12,7 @@ export type DetectionState = {
   detections: Detection[];
   /** Unix seconds (float), from Python -- optional, absent from old clients / curl. */
   capturedAt?: number;
+  inferStartedAt?: number;
   inferredAt?: number;
   sentAt?: number;
 };
@@ -19,6 +20,7 @@ export type DetectionState = {
 /** Timing for one ingested state, ms epoch; null for any stage the client didn't send. */
 export type StateTiming = {
   capturedAt: number | null;
+  inferStartedAt: number | null;
   inferredAt: number | null;
   sentAt: number | null;
   receivedAt: number;
@@ -62,6 +64,7 @@ export function parseDetectionState(data: unknown): DetectionState | null {
     timestamp: rec.timestamp,
     detections: rec.detections as Detection[],
     capturedAt: optNum(rec.capturedAt),
+    inferStartedAt: optNum(rec.inferStartedAt),
     inferredAt: optNum(rec.inferredAt),
     sentAt: optNum(rec.sentAt),
   };
@@ -85,6 +88,7 @@ export function ingestDetectionState(data: unknown): DetectionState | null {
   const receivedAt = Date.now();
   const timing: StateTiming = {
     capturedAt: toMs(parsed.capturedAt),
+    inferStartedAt: toMs(parsed.inferStartedAt),
     inferredAt: toMs(parsed.inferredAt),
     sentAt: toMs(parsed.sentAt),
     receivedAt,
@@ -106,6 +110,7 @@ function applyPersonState(detected: boolean, timing: StateTiming): void {
 
   recordSample({
     capturedAt: timing.capturedAt,
+    inferStartedAt: timing.inferStartedAt,
     inferredAt: timing.inferredAt,
     sentAt: timing.sentAt,
     receivedAt: timing.receivedAt,
@@ -148,7 +153,7 @@ export function simulatePerson(seconds: number): void {
   overrideUntil = seconds > 0 ? Date.now() + seconds * 1000 : 0;
 
   const now = Date.now();
-  const synthetic: StateTiming = { capturedAt: now, inferredAt: now, sentAt: now, receivedAt: now };
+  const synthetic: StateTiming = { capturedAt: now, inferStartedAt: now, inferredAt: now, sentAt: now, receivedAt: now };
   const realDetected = current.detections.some((d) => d.label === "person");
   console.log(
     `[${new Date().toISOString()}] [detections] debug override ${seconds > 0 ? `on for ${seconds}s` : "cleared"}`,
@@ -160,7 +165,7 @@ export function simulatePerson(seconds: number): void {
       overrideTimer = null;
       const t = Date.now();
       const stillDetected = current.detections.some((d) => d.label === "person");
-      applyPersonState(stillDetected, { capturedAt: t, inferredAt: t, sentAt: t, receivedAt: t });
+      applyPersonState(stillDetected, { capturedAt: t, inferStartedAt: t, inferredAt: t, sentAt: t, receivedAt: t });
     }, seconds * 1000 + 5);
   }
 }

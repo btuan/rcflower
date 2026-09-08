@@ -12,6 +12,7 @@ type StageStats = {
 
 type LatencySample = {
   capturedAt: number | null;
+  inferStartedAt: number | null;
   inferredAt: number | null;
   sentAt: number | null;
   receivedAt: number;
@@ -24,6 +25,7 @@ type LatencyResponse = { samples: LatencySample[]; stats: StageStats[] };
 
 type PersonEventTiming = {
   capturedAt: number | null;
+  inferStartedAt: number | null;
   inferredAt: number | null;
   sentAt: number | null;
   receivedAt: number | null;
@@ -288,7 +290,8 @@ export function Debug() {
           <thead>
             <tr className="border-b border-neutral-500">
               <th className="py-1 pr-3">state</th>
-              <th className="py-1 pr-3">capture→infer</th>
+              <th className="py-1 pr-3">frame age</th>
+              <th className="py-1 pr-3">inference</th>
               <th className="py-1 pr-3">infer→sent</th>
               <th className="py-1 pr-3">sent→recv</th>
               <th className="py-1 pr-3">recv→broadcast</th>
@@ -299,7 +302,8 @@ export function Debug() {
           <tbody>
             {[...transitions].reverse().map((tr, i) => {
               const t = tr.t;
-              const captureToInfer = delta(t?.capturedAt, t?.inferredAt);
+              const frameAge = delta(t?.capturedAt, t?.inferStartedAt);
+              const inference = delta(t?.inferStartedAt, t?.inferredAt);
               const inferToSent = delta(t?.inferredAt, t?.sentAt);
               const sentToReceived = delta(t?.sentAt, t?.receivedAt);
               const receivedToBroadcast = delta(t?.receivedAt, t?.broadcastAt);
@@ -315,7 +319,8 @@ export function Debug() {
                       {tr.inFrame ? "in frame" : "out"}
                     </span>
                   </td>
-                  <td className="py-1 pr-3">{fmt(captureToInfer)}</td>
+                  <td className="py-1 pr-3">{fmt(frameAge)}</td>
+                  <td className="py-1 pr-3">{fmt(inference)}</td>
                   <td className="py-1 pr-3">{fmt(inferToSent)}</td>
                   <td className="py-1 pr-3">{fmt(sentToReceived)}</td>
                   <td className="py-1 pr-3">{fmt(receivedToBroadcast)}</td>
