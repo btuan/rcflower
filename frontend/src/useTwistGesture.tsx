@@ -45,7 +45,9 @@ export function useTwistGesture(
   } = options;
 
   const cb = useRef(handlers);
-  cb.current = handlers;
+  useEffect(() => {
+    cb.current = handlers;
+  }, [handlers]);
 
   const [phase, setPhase] = useState<TwistPhase>("idle");
   const [progress, setProgress] = useState(0);
