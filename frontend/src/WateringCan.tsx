@@ -38,11 +38,10 @@ export default function WateringCan() {
   const [pouring, setPouring] = useState(false);
   const [pourFrame, setPourFrame] = useState(0);
 
+  // The frame counter is reset in onTwist (when a pour starts) rather than
+  // here, so this effect only owns the interval.
   useEffect(() => {
-    if (!pouring) {
-      setPourFrame(0);
-      return;
-    }
+    if (!pouring) return;
     const id = setInterval(
       () => setPourFrame((n) => (n + 1) % POUR_FRAMES.length),
       POUR_FRAME_MS,
@@ -70,6 +69,7 @@ export default function WateringCan() {
     () => ({
       onTwist: () => {
         setTwists((n) => n + 1);
+        setPourFrame(0);
         setPouring(true);
         pourStart.current = Date.now();
       },
