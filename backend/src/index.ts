@@ -1,6 +1,12 @@
 import { config } from "./config.ts";
 import "./db.ts";
-import { getState, ingestDetectionState, isPersonInFrame } from "./detections.ts";
+import {
+  getState,
+  ingestDetectionState,
+  isPersonInFrame,
+  overrideRemainingMs,
+  simulatePerson,
+} from "./detections.ts";
 import { getSamples, getStats } from "./latency.ts";
 import { handleEvents } from "./sse.ts";
 import { recentWatering, recordWatering } from "./watering.ts";
@@ -72,6 +78,28 @@ async function handleDetections(req: Request): Promise<Response> {
   return Response.json({ ok: true, personInFrame: isPersonInFrame() }, { status: 202 });
 }
 
+const simulateStatus = () =>
+  Response.json({ personInFrame: isPersonInFrame(), overrideRemainingMs: overrideRemainingMs() });
+
+/**
+ * POST /api/debug/simulate-person -- force person_in_frame=true for
+ * `{ seconds }` (0 clears), so the UI can be exercised without a live person.
+ */
+async function handleSimulatePerson(req: Request): Promise<Response> {
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    // default below
+  }
+  const seconds = num(body.seconds) ?? 10;
+  if (seconds < 0 || seconds > 3600) {
+    return Response.json({ error: "seconds must be within 0..3600" }, { status: 400 });
+  }
+  simulatePerson(seconds);
+  return simulateStatus();
+}
+
 const server = Bun.serve({
   port: config.port,
   hostname: config.host,
@@ -96,6 +124,8 @@ const server = Bun.serve({
           : Response.json(recentWatering());
       case "/api/debug/latency":
         return Response.json({ samples: getSamples(), stats: getStats() });
+      case "/api/debug/simulate-person":
+        return req.method === "POST" ? handleSimulatePerson(req) : simulateStatus();
     }
 
     if (pathname.startsWith("/api/")) {
