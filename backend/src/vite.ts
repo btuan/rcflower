@@ -24,6 +24,11 @@ export function startVite(): Subprocess {
   const proc = Bun.spawn(
     [
       "bunx",
+      // Without this, bunx honors vite's `#!/usr/bin/env node` shebang and
+      // shells out to whatever `node` is first on PATH -- which may be an
+      // old/stray install incompatible with Vite/rolldown. --bun forces it
+      // to run under Bun's own runtime instead.
+      "--bun",
       "vite",
       "--host",
       config.viteHost,

@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useGSAP } from "@gsap/react";
+import gsap from "gsap";
 import { rollAngle, tiltFromFlat, upInDevice } from "./orientation";
 import { useDeviceOrientation } from "./useDeviceOrientation";
 import { useLockPortrait } from "./useLockPortrait";
@@ -20,12 +22,33 @@ const PHASE_LABEL: Record<string, string> = {
   fired: "Pouring — twist back to stop",
 };
 
+function wavePath(
+  width: number,
+  height: number,
+  amplitude: number,
+  freq: number,
+  phase: number,
+) {
+  const points = 40;
+  let d = `M0,${height}`;
+  for (let i = 0; i <= points; i++) {
+    const x = (width / points) * i;
+    const y =
+      0 + Math.sin((x / width) * freq * Math.PI * 2 + phase) * amplitude;
+    d += ` L${x},${y}`;
+  }
+  d += ` L${width},${height} Z`;
+  return d;
+}
+
 export default function WateringCan() {
   const { permission, error, listening, orientation, start } =
     useDeviceOrientation();
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const { status: lockStatus, requestLock } = useLockPortrait(rootRef);
+
+  const pathRef = useRef<SVGPathElement | null>(null);
 
   const handleStart = () => {
     // Both the fullscreen request and screen.orientation.lock() require a
@@ -37,6 +60,29 @@ export default function WateringCan() {
   const [twists, setTwists] = useState(0);
   const [pouring, setPouring] = useState(false);
   const [pourFrame, setPourFrame] = useState(0);
+
+  useGSAP(
+    () => {
+      if (!pouring) return;
+      const tick = () => {
+        const t = gsap.ticker.time;
+        pathRef.current?.setAttribute(
+          "d",
+          wavePath(1200, window.innerHeight, 12, 2, t * 2), // amplitude & freq can themselves vary with t
+        );
+      };
+      gsap.ticker.add(tick);
+
+      gsap.to(pathRef.current, {
+        y: "100svh",
+        duration: 5.0,
+        ease: "power3.inOut",
+      });
+
+      return () => gsap.ticker.remove(tick);
+    },
+    { scope: rootRef, dependencies: [pouring] },
+  );
 
   // The frame counter is reset in onTwist (when a pour starts) rather than
   // here, so this effect only owns the interval.
@@ -171,6 +217,25 @@ export default function WateringCan() {
       >
         Debug: Trigger water
       </button>
+
+      <svg
+        style={{
+          width: "100svw",
+          height: "100svh",
+          position: "absolute",
+          bottom: 0,
+          left: 0,
+          pointerEvents: "none",
+        }}
+      >
+        <path
+          ref={pathRef}
+          y="0"
+          style={{
+            fill: "rgba(56, 85, 165, 0.8)",
+          }}
+        ></path>
+      </svg>
 
       {error && (
         <p role="alert" style={{ color: "crimson", lineHeight: 1.5 }}>
