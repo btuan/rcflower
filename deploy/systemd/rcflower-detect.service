@@ -11,7 +11,8 @@ StartLimitBurst=5
 Type=simple
 User=pi
 WorkingDirectory=/home/pi/code/rcflower/python
-ExecStart=/home/pi/code/rcflower/python/venv/bin/python3 -u detect.py --headless --camera 0 --classes person
+Environment=PATH=/home/pi/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/home/pi/.local/bin/uv run python detect.py --headless --camera 0 --classes person
 Restart=on-failure
 RestartSec=3
 # POSTs to the backend are best-effort (logs + continues on failure), so this

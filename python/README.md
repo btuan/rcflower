@@ -7,11 +7,17 @@ deployment target (~10 FPS goal).
 
 ## Setup
 
+This project uses uv for dependency management and a local virtual environment.
+
 ```bash
 cd python
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+uv sync
+```
+
+To run commands inside the managed environment:
+
+```bash
+uv run python detect.py
 ```
 
 ## Run
@@ -79,10 +85,10 @@ machine, or the Pi's IP/hostname if running remotely). Same flags as
 ## Porting to the Raspberry Pi 4B
 
 Same `detect.py` and model should run unchanged. On Bookworm (Python 3.11)
-`ai-edge-litert` publishes aarch64 wheels, so `pip install -r
-requirements.txt` should work as-is. If not, swap the interpreter import in
-`detect.py` for `tflite_runtime.interpreter.Interpreter` (API-compatible) and
-install `tflite-runtime` instead.
+`ai-edge-litert` publishes aarch64 wheels, so `uv sync` should work as-is. If
+not, swap the interpreter import in `detect.py` for
+`tflite_runtime.interpreter.Interpreter` (API-compatible) and install
+`tflite-runtime` instead.
 
 To hit ~10 FPS on a Pi 4B, first try lowering capture resolution
 (`--width 320 --height 240`) before reaching for a smaller model.

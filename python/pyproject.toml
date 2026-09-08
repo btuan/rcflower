@@ -1,0 +1,15 @@
+[project]
+name = "rcflower-python"
+version = "0.1.0"
+description = "Object detection service for rcflower"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "opencv-python>=4.9",
+  "numpy>=1.26",
+  "ai-edge-litert>=2.2.0",
+  "flask>=3.0",
+]
+
+[tool.uv]
+package = false

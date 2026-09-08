@@ -1,4 +1,5 @@
 state/
 **pycache**
 **venv/
+.venv/
 *.pyc
