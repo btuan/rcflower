@@ -1,7 +1,11 @@
 # Installed via deploy/install-systemd.sh -- edit this file, then re-run that
 # script (not `systemctl edit`) so the repo stays the source of truth.
+#
+# PROD mode: Bun serves the API + the prebuilt frontend from frontend/dist.
+# There is no Vite process on the Pi. install-systemd.sh runs the frontend
+# build before restarting this unit, so after `git pull` just re-run it.
 [Unit]
-Description=rcflower backend (Bun, dev mode -- hot-reloading, spawns Vite)
+Description=rcflower backend (Bun, prod -- API + static frontend/dist)
 After=network.target
 StartLimitIntervalSec=60
 StartLimitBurst=5
@@ -10,9 +14,7 @@ StartLimitBurst=5
 Type=simple
 User=pi
 WorkingDirectory=/home/pi/code/rcflower/backend
-# bunx (spawned internally to run Vite, see src/vite.ts) needs bun's bin dir on PATH.
-Environment=PATH=/home/pi/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=/home/pi/.bun/bin/bun run dev
+ExecStart=/home/pi/.bun/bin/bun run start
 Restart=on-failure
 RestartSec=3
 # stdout/stderr go to the journal -- `journalctl -u rcflower-backend -f`

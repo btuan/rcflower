@@ -8,7 +8,34 @@ Three pieces, running together on a Raspberry Pi 4B:
   (`POST /api/detections`), persists state transitions + watering events to
   SQLite, and pushes live updates to the frontend over SSE. See
   [`backend/README.md`](backend/README.md).
-- **`frontend/`** — the UI (React + Vite), served by the backend.
+- **`frontend/`** — the UI (React), compiled by Vite, served by the backend.
+
+## One server, one port: `http://localhost:3000`
+
+This trips people up, so to be explicit: **the app is the Bun server on port
+3000.** Dev or prod, that is the only URL you open.
+
+| | Bun (`backend/`) | Vite (`frontend/`) |
+|---|---|---|
+| What it is | The app server: `/api/*`, SSE, SQLite, serves the frontend | The frontend **compiler**: TSX, Tailwind, React Compiler, hot reload |
+| Dev (`bun run dev`) | Listens on **:3000**. Proxies everything that isn't `/api` to Vite | Spawned by Bun as an internal child on `127.0.0.1:5173`. Loopback only, prints no banner. **Don't open it** -- it has no `/api` routes |
+| Prod (`bun run start`) | Listens on **:3000**. Serves `frontend/dist` | **Not running.** `vite build` ran once (`bun run build:frontend`) and exited |
+
+Why both? Bun is the runtime; Vite is the toolchain that turns TSX/Tailwind
+into a browser bundle and hot-reloads it while you edit. Bun could bundle, but
+not with Tailwind v4 + the React Compiler + Fast Refresh out of the box, and
+in prod Vite isn't a process at all -- so there's little to gain from ripping
+it out. The rule of thumb: **if you're typing `5173`, something is wrong.**
+
+```sh
+cd backend && bun install
+bun run dev        # dev: :3000 (Vite child for hot reload; invisible)
+bun run build:frontend && bun run start   # prod: :3000 only, no Vite
+```
+
+`bun` commands run from `backend/` because Bun loads `backend/.env` from the
+cwd. The one Vite-only thing you'll touch is `frontend/.env`'s
+`ALLOWED_HOSTS` when developing through a tunnel/proxy hostname.
 
 ## Running as services (systemd)
 
@@ -23,15 +50,17 @@ go through git like everything else.
 ./deploy/install-systemd.sh
 ```
 
-Copies the unit files into `/etc/systemd/system/`, reloads systemd, and
-(re)starts both services. Safe to re-run any time -- after `git pull`, or
-after hand-editing a file in `deploy/systemd/`. Needs `sudo`.
+This is the deploy step. It builds the frontend (`frontend/dist`), copies the
+unit files into `/etc/systemd/system/`, reloads systemd, and (re)starts both
+services. Safe to re-run any time -- after `git pull`, or after hand-editing a
+file in `deploy/systemd/`. Needs `sudo`. Pass `--no-build` to skip the
+frontend build (e.g. only a unit file changed).
 
 ### Services
 
 | Unit | What it runs | Notes |
 |---|---|---|
-| `rcflower-backend.service` | `bun run dev` in `backend/` | Dev mode -- hot-reload, spawns its own Vite. Not yet switched to a `bun run start` / built-`frontend/dist` prod setup. |
+| `rcflower-backend.service` | `bun run start` in `backend/` | **Prod mode**: API + prebuilt `frontend/dist` on :3000. No Vite process on the Pi. Frontend changes need a rebuild -- re-run `install-systemd.sh`. |
 | `rcflower-detect.service` | `venv/bin/python3 -u detect.py --headless --camera 0 --classes person` in `python/` | Person-only detection. POSTs to the backend are best-effort, so this doesn't hard-depend on the backend being up. |
 
 ### Inspecting logs

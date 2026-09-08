@@ -6,8 +6,8 @@ Notes for agents (and humans) working in this repo.
 
 | Dir | What it is | Runtime |
 | --- | --- | --- |
-| `backend/` | Bun + TypeScript HTTP server. Single entry point for the app. | Bun |
-| `frontend/` | React 19 + Vite 8 SPA (React Router, Tailwind v4, React Compiler). | Vite (dev/build only) |
+| `backend/` | Bun + TypeScript HTTP server. **The app**, on :3000. Single entry point, dev and prod. | Bun |
+| `frontend/` | React 19 SPA (React Router, Tailwind v4, React Compiler). Vite is its compiler, not a server you talk to. | Vite (dev child process / one-shot build) |
 | `python/` | Vision service: TFLite YOLOv8n object detection from a webcam. Separate process. | Python 3 |
 | `state/` | Runtime scratch. `state/detections.json` is written by `python/detect.py` and read by the backend. Gitignored. | — |
 | `assets/` | Source art / model inputs. | — |
@@ -43,23 +43,29 @@ python/detect.py --headless  ->  POST /api/detections  ->  backend  ->  GET /api
 - Config: `backend/.env` (committed defaults), override per-machine in
   `backend/.env.local` (gitignored). Bun auto-loads both from the cwd, so run
   bun commands from `backend/`.
-- Dev is one command: `bun run dev` spawns Vite as a child process and proxies
-  to it. Vite's HMR websocket connects straight to Vite (via `HMR_CLIENT_PORT`)
-  because Bun doesn't proxy websockets.
+- **One port.** `http://localhost:3000` is the app in both modes. Dev is one
+  command: `bun run dev` spawns Vite as an internal child (`127.0.0.1:5173`,
+  `--logLevel warn`, so it prints no banner) and proxies every non-`/api`
+  request to it. Never point a browser, curl, or a doc at 5173 -- it has no
+  `/api` routes. The only thing that talks to Vite directly is its own HMR
+  websocket in the browser (`HMR_CLIENT_PORT`), because Bun doesn't proxy
+  websockets.
+- Prod (`bun run start`) has no Vite process: `bun run build:frontend` runs
+  `vite build` once and Bun serves `frontend/dist`. The Pi runs prod.
 - `bun run typecheck` before committing backend changes.
 
 ```sh
 cd backend
 bun install
 bun run dev                              # dev, :3000
-bun run build:frontend && bun run start  # prod
+bun run build:frontend && bun run start  # prod, :3000
 ```
 
 ## Frontend
 
-- Vite is a build/dev tool, not a production runtime. `vite build` emits static
-  files to `frontend/dist/`; in prod the backend serves those and no Vite
-  process runs.
+- Vite is the frontend compiler (TSX, Tailwind v4, React Compiler, hot
+  reload), not a runtime and not a server developers interact with. See
+  "One server, one port" in the root README before touching anything here.
 - Don't add API middleware to `vite.config.ts` — API code lives in `backend/`.
   (There used to be a `vite-plugin-sse.ts`; it was removed.)
 - `frontend/.env` holds `ALLOWED_HOSTS` (comma-separated) for Vite's dev-server
@@ -71,7 +77,10 @@ bun run build:frontend && bun run start  # prod
 ## Deployment
 
 - Runs on a Raspberry Pi (`kirwinpi`), repo at `/home/pi/code/rcflower`,
-  kept in sync with `origin/main` via `git pull`.
+  kept in sync with `origin/main` via `git pull`. Deploy = `git pull &&
+  ./deploy/install-systemd.sh` (builds `frontend/dist`, restarts the units).
+  The backend unit runs prod mode, so a frontend change is not live until
+  that script has rebuilt it.
 - Bun is installed at `~/.bun/bin/bun`. `~/.bashrc` only loads for interactive
   shells, so systemd units / `ssh pi@kirwinpi 'bun ...'` must use the full path
   or set `PATH` explicitly.
