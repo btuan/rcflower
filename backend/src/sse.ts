@@ -26,6 +26,7 @@ export function handleEvents(req: Request): Response {
           inFrame,
           t: {
             capturedAt: timing.capturedAt,
+            inferStartedAt: timing.inferStartedAt,
             inferredAt: timing.inferredAt,
             sentAt: timing.sentAt,
             receivedAt: timing.receivedAt,

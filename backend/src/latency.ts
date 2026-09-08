@@ -17,6 +17,8 @@ export type LatencySample = {
   /** Python: cap.read() returned (ms epoch), or null if the client didn't send it. */
   capturedAt: number | null;
   /** Python: interpreter.invoke() + postprocess done (ms epoch), or null. */
+  /** Python: inference started on this frame (ms epoch); capturedAt->this is frame age. */
+  inferStartedAt: number | null;
   inferredAt: number | null;
   /** Python: about to POST (ms epoch), or null. */
   sentAt: number | null;
@@ -53,7 +55,8 @@ type Stage = {
 };
 
 const STAGES: Stage[] = [
-  { label: "capture->infer", from: "capturedAt", to: "inferredAt" },
+  { label: "frame age (capture->infer start)", from: "capturedAt", to: "inferStartedAt" },
+  { label: "inference (infer start->done)", from: "inferStartedAt", to: "inferredAt" },
   { label: "infer->sent", from: "inferredAt", to: "sentAt" },
   { label: "sent->received", from: "sentAt", to: "receivedAt" },
   { label: "received->broadcast", from: "receivedAt", to: "broadcastAt" },
