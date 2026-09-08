@@ -303,7 +303,11 @@ def main() -> None:
     )
     parser.add_argument("--width", type=int, default=640, help="Capture width")
     parser.add_argument("--height", type=int, default=480, help="Capture height")
-    parser.add_argument("--threads", type=int, default=2, help="Interpreter CPU threads")
+    parser.add_argument(
+        "--threads", type=int, default=3,
+        help="Interpreter CPU threads. Pi 4B (4 cores) benchmark, 320px float32: "
+        "1=244ms 2=144ms 3=117ms 4=107ms; 3 leaves a core for the capture thread + backend.",
+    )
     parser.add_argument("--state-path", type=Path, default=STATE_PATH, help="Detection state JSON output path")
     parser.add_argument(
         "--backend-url", type=str, default=BACKEND_URL,
