@@ -8,7 +8,7 @@ Notes for agents (and humans) working in this repo.
 | --- | --- | --- |
 | `backend/` | Bun + TypeScript HTTP server. **The app**, on :3000. Single entry point, dev and prod. | Bun |
 | `frontend/` | React 19 SPA (React Router, Tailwind v4, React Compiler). Vite is its compiler, not a server you talk to. | Vite (dev child process / one-shot build) |
-| `python/` | Vision service: TFLite YOLOv8n object detection from a webcam. Separate process. | Python 3 |
+| `python/` | Vision service: NCNN YOLOv8n object detection from a webcam. Separate process. | Python 3 |
 | `state/` | Runtime scratch. `state/detections.json` is written by `python/detect.py` and read by the backend. Gitignored. | — |
 | `assets/` | Source art / model inputs. | — |
 
@@ -85,7 +85,7 @@ bun run build:frontend && bun run start  # prod, :3000
   shells, so systemd units / `ssh pi@kirwinpi 'bun ...'` must use the full path
   or set `PATH` explicitly.
 - Target for detection is a Raspberry Pi 4B; `python/detect.py` runs on Mac as
-  a stand-in (swap `ai_edge_litert` for `tflite_runtime` on the Pi).
+  a stand-in with the same NCNN model export and the same camera loop.
 
 ## Conventions
 
