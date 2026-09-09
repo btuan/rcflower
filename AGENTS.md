@@ -76,7 +76,7 @@ bun run build:frontend && bun run start  # prod, :3000
 
 ## Deployment
 
-- Runs on a Raspberry Pi (`kirwinpi`), repo at `/home/pi/code/rcflower`,
+- Runs on a Raspberry Pi 4B (`kirwinpi`), repo at `/home/pi/code/rcflower`,
   kept in sync with `origin/main` via `git pull`. Deploy = `git pull &&
   ./deploy/install-systemd.sh` (builds `frontend/dist`, restarts the units).
   The backend unit runs prod mode, so a frontend change is not live until
@@ -84,8 +84,6 @@ bun run build:frontend && bun run start  # prod, :3000
 - Bun is installed at `~/.bun/bin/bun`. `~/.bashrc` only loads for interactive
   shells, so systemd units / `ssh pi@kirwinpi 'bun ...'` must use the full path
   or set `PATH` explicitly.
-- Target for detection is a Raspberry Pi 4B; `python/detect.py` runs on Mac as
-  a stand-in with the same NCNN model export and the same camera loop.
 
 ## Conventions
 
