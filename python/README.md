@@ -3,7 +3,6 @@
 Pulls frames from a USB webcam via OpenCV and runs a YOLOv8n model exported
 for NCNN. The project uses the checked-in model under
 `yolov8n_ncnn_model/` and reads labels from that directory's `metadata.yaml`.
-This is the Mac dev stand-in for the Raspberry Pi 4B deployment target.
 
 ## Setup
 
@@ -81,7 +80,7 @@ machine, or the Pi's IP/hostname if running remotely). Same flags as
 - `yolov8n_ncnn_model/` — exported YOLOv8n NCNN model files and metadata labels
 - `export_model.py` — exports a different YOLOv8n NCNN model from Ultralytics weights (dev-only, not needed to run detect.py)
 
-## Porting to the Raspberry Pi 4B
+## ML inference on the Raspberry Pi 4B
 
 The same `detect.py` and exported model should run unchanged on a Pi 4B.
 The current export targets the NCNN runtime, so installation is based on the
