@@ -1,7 +1,7 @@
 # Installed via deploy/install-systemd.sh -- edit this file, then re-run that
 # script (not `systemctl edit`) so the repo stays the source of truth.
 [Unit]
-Description=rcflower person detection (YOLOv8n TFLite, headless)
+Description=rcflower person detection (YOLOv8n NCNN, headless)
 After=network.target rcflower-backend.service
 Wants=rcflower-backend.service
 StartLimitIntervalSec=60
@@ -12,7 +12,8 @@ Type=simple
 User=pi
 WorkingDirectory=/home/pi/code/rcflower/python
 Environment=PATH=/home/pi/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=/home/pi/.local/bin/uv run python detect.py --headless --camera 0 --classes person
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/pi/.local/bin/uv run python -u detect.py --headless --camera 0 --classes person
 Restart=on-failure
 RestartSec=3
 # POSTs to the backend are best-effort (logs + continues on failure), so this
