@@ -324,6 +324,10 @@ def main() -> None:
     parser.add_argument("--width", type=int, default=640, help="Capture width")
     parser.add_argument("--height", type=int, default=480, help="Capture height")
     parser.add_argument(
+        "--use-vulkan", action="store_true",
+        help="Use Vulkan for GPU inference"
+    )
+    parser.add_argument(
         "--threads", type=int, default=3,
         help="NCNN CPU thread count used for inference. Vulkan is enabled by default, so this is mostly for CPU fallback.",
     )
@@ -355,7 +359,7 @@ def main() -> None:
         model_bin = args.model.parent / f"{args.model.stem}.bin"
 
     net = NCNN.Net()
-    net.opt.use_vulkan_compute = True
+    net.opt.use_vulkan_compute = args.use_vulkan
     net.opt.num_threads = args.threads
     net.load_param(str(args.model))
     net.load_model(str(model_bin))
@@ -366,7 +370,7 @@ def main() -> None:
         raise RuntimeError(f"Could not open camera index {args.camera}")
 
     grabber = LatestFrameGrabber(cap).start()
-    print(f"[{utc_ts()}] [detect] started successfully: model={args.model}, labels={args.labels}, camera={args.camera}, backend={args.backend_url or 'disabled'}")
+    print(f"[{utc_ts()}] [detect] started successfully: model={args.model}, labels={args.labels}, camera={args.camera}, backend={args.backend_url or 'disabled'}, use_vulkan={args.use_vulkan:1}")
 
     fps = 0.0
     prev_time = time.time()
@@ -405,7 +409,7 @@ def main() -> None:
 
             # Heartbeat log: print diagnostics every 1.0 seconds
             if now - last_diag_time >= 1.0:
-                print(f"[{utc_ts()}] [detect] fps={fps:.1f} detections={len(state['detections'])} backend={args.backend_url or 'disabled'}")
+                print(f"[{utc_ts()}] [detect] fps={fps:.1f} detections={len(state['detections'])} backend={args.backend_url or 'disabled'} use_vulkan={args.use_vulkan:1}")
                 last_diag_time = now
 
             if not args.headless:
