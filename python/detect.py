@@ -366,9 +366,11 @@ def main() -> None:
         raise RuntimeError(f"Could not open camera index {args.camera}")
 
     grabber = LatestFrameGrabber(cap).start()
+    print(f"[{utc_ts()}] [detect] started successfully: model={args.model}, labels={args.labels}, camera={args.camera}, backend={args.backend_url or 'disabled'}")
 
     fps = 0.0
     prev_time = time.time()
+    last_diag_time = 0.0
 
     try:
         while True:
@@ -400,6 +402,11 @@ def main() -> None:
             now = time.time()
             fps = 0.9 * fps + 0.1 * (1.0 / max(now - prev_time, 1e-6))
             prev_time = now
+
+            # Heartbeat log: print diagnostics every 1.0 seconds
+            if now - last_diag_time >= 1.0:
+                print(f"[{utc_ts()}] [detect] fps={fps:.1f} detections={len(state['detections'])} backend={args.backend_url or 'disabled'}")
+                last_diag_time = now
 
             if not args.headless:
                 draw_detections(frame, boxes, confidences, class_ids, labels)
