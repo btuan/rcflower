@@ -1,13 +1,12 @@
 """
-One-off helper to (re)generate an OpenVINO IR model for the YOLOv8n detector.
+One-off helper to (re)generate an NCNN model for the YOLOv8n detector.
 
 Not needed to run detect.py -- the exported model is already checked into
 models/. Re-run this only if you want a different YOLOv8 size/input
-resolution. Requires the dev deps: `pip install ultralytics openvino`.
+resolution. Requires the dev dependency `ultralytics` (see `pyproject.toml`).
 """
 
 import argparse
-import shutil
 from pathlib import Path
 
 
@@ -32,18 +31,7 @@ def main() -> None:
     )
 
     exported_path = Path(exported)
-    # if exported_path.suffix.lower() != ".xml":
-    #     xml_matches = sorted(exported_path.glob("*.xml"))
-    #     if not xml_matches:
-    #         raise FileNotFoundError(f"No OpenVINO XML model was produced at {exported_path}")
-    #     exported_path = xml_matches[0]
-
-    # exported_bin = exported_path.with_suffix(".bin")
-    # if not exported_bin.exists():
-    #     raise FileNotFoundError(f"OpenVINO bin file not found next to {exported_path}")
-
     print(f"Wrote {exported_path}")
-    # print(f"Wrote {exported_bin}")
 
 
 if __name__ == "__main__":
