@@ -2,8 +2,9 @@
 
 Three pieces, running together on a Raspberry Pi 4B:
 
-- **`python/`** — `detect.py` reads a USB webcam, runs a YOLOv8n TFLite model,
-  and reports person detections. See [`python/README.md`](python/README.md).
+- **`python/`** — `detect.py` reads a USB webcam, runs a YOLOv8n NCNN model
+  from `python/yolov8n_ncnn_model`, and reports person detections. See
+  [`python/README.md`](python/README.md).
 - **`backend/`** — a Bun server that ingests those detections
   (`POST /api/detections`), persists state transitions + watering events to
   SQLite, and pushes live updates to the frontend over SSE. See
