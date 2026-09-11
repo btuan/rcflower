@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "images": "node scripts/gen-images.mjs",
+    "flower-images": "node scripts/gen-flower-images.mjs",
+    "watering-can-images": "node scripts/gen-watering-can-images.mjs",
     "test": "vitest run"
   },
   "dependencies": {

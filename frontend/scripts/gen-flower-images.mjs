@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Generates responsive WebP variants of the flower mood illustrations.
 //
-// Source of truth: 2048x2048 PNGs in `assets/` (repo root). This script
+// Source of truth: 2048x2048 PNGs in `assets/flower/` (repo root). This script
 // reads those and writes multi-width WebP files into
 // `frontend/src/assets/flower/`, which are committed so the build doesn't
 // depend on this script running in CI.
@@ -15,7 +15,7 @@ import sharp from "sharp";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
-const srcDir = path.join(repoRoot, "assets");
+const srcDir = path.join(repoRoot, "assets", "flower");
 const outDir = path.join(__dirname, "..", "src", "assets", "flower");
 
 const MOODS = ["Neutral", "Sad", "Happy", "Dead"];
