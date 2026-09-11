@@ -6,11 +6,37 @@ import { useDeviceOrientation } from "./useDeviceOrientation";
 import { useLockPortrait } from "./useLockPortrait";
 import { useTwistGesture } from "./useTwistGesture";
 import type { TwistHandlers } from "./useTwistGesture";
-import wateringCanUpright from "./assets/WateringCan/WateringCanUpright.png";
-import wateringCanPour1 from "./assets/WateringCan/WateringCanPour1.png";
-import wateringCanPour2 from "./assets/WateringCan/WateringCanPour2.png";
+import wateringCanUpright256 from "./assets/WateringCan/WateringCanUpright-256.webp";
+import wateringCanUpright512 from "./assets/WateringCan/WateringCanUpright-512.webp";
+import wateringCanUpright1024 from "./assets/WateringCan/WateringCanUpright-1024.webp";
+import wateringCanUpright2048 from "./assets/WateringCan/WateringCanUpright-2048.webp";
+import wateringCanPour1256 from "./assets/WateringCan/WateringCanPour1-256.webp";
+import wateringCanPour1512 from "./assets/WateringCan/WateringCanPour1-512.webp";
+import wateringCanPour11024 from "./assets/WateringCan/WateringCanPour1-1024.webp";
+import wateringCanPour12048 from "./assets/WateringCan/WateringCanPour1-2048.webp";
+import wateringCanPour2256 from "./assets/WateringCan/WateringCanPour2-256.webp";
+import wateringCanPour2512 from "./assets/WateringCan/WateringCanPour2-512.webp";
+import wateringCanPour21024 from "./assets/WateringCan/WateringCanPour2-1024.webp";
+import wateringCanPour22048 from "./assets/WateringCan/WateringCanPour2-2048.webp";
 
-const POUR_FRAMES = [wateringCanPour1, wateringCanPour2];
+const IMG_SIZES = "min(90vw, 420px)";
+
+const WATERING_CAN_IMAGES = {
+  upright: {
+    src: wateringCanUpright1024,
+    srcSet: `${wateringCanUpright256} 256w, ${wateringCanUpright512} 512w, ${wateringCanUpright1024} 1024w, ${wateringCanUpright2048} 2048w`,
+  },
+  pour1: {
+    src: wateringCanPour11024,
+    srcSet: `${wateringCanPour1256} 256w, ${wateringCanPour1512} 512w, ${wateringCanPour11024} 1024w, ${wateringCanPour12048} 2048w`,
+  },
+  pour2: {
+    src: wateringCanPour21024,
+    srcSet: `${wateringCanPour2256} 256w, ${wateringCanPour2512} 512w, ${wateringCanPour21024} 1024w, ${wateringCanPour22048} 2048w`,
+  },
+} as const;
+
+const POUR_FRAMES = [WATERING_CAN_IMAGES.pour1, WATERING_CAN_IMAGES.pour2];
 const POUR_FRAME_MS = 140;
 
 const fmt = (n: number | null | undefined, digits = 1) =>
@@ -177,13 +203,23 @@ export default function WateringCan() {
       </h1>
 
       {(() => {
-        const src = pouring ? POUR_FRAMES[pourFrame] : wateringCanUpright;
-        return [wateringCanUpright, ...POUR_FRAMES].map((frame) => (
+        const src = pouring
+          ? POUR_FRAMES[pourFrame].src
+          : WATERING_CAN_IMAGES.upright.src;
+        return [WATERING_CAN_IMAGES.upright, ...POUR_FRAMES].map((frame) => (
           <img
-            key={frame}
-            src={frame}
+            key={frame.src}
+            src={frame.src}
+            srcSet={frame.srcSet}
+            sizes={IMG_SIZES}
             alt="Watering can"
-            style={{ display: frame === src ? "block" : "none" }}
+            style={{
+              display: frame.src === src ? "block" : "none",
+              width: "100%",
+              maxWidth: "420px",
+              maxHeight: "70vh",
+              objectFit: "contain",
+            }}
           />
         ));
       })()}
