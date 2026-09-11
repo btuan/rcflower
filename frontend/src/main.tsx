@@ -7,6 +7,7 @@ import WateringCan from "./WateringCan.tsx";
 import { Flower } from "./Flower.tsx";
 import { SseDemo } from "./SseDemo.tsx";
 import { Debug } from "./Debug.tsx";
+import { ReceiptPrinter } from "./TestGround/ReceiptPrinter.tsx";
 
 console.log(Flower);
 createRoot(document.getElementById("root")!).render(
@@ -18,6 +19,7 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/flower" element={<Flower />} />
         <Route path="/sse" element={<SseDemo />} />
         <Route path="/debug" element={<Debug />} />
+        <Route path="/test/receipt-printer" element={<ReceiptPrinter />} />
       </Routes>
     </BrowserRouter>
   </StrictMode>,

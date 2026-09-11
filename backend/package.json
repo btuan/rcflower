@@ -11,5 +11,9 @@
   "devDependencies": {
     "@types/bun": "^1.2.0",
     "typescript": "~6.0.2"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "js-cookie": "^3.0.8"
   }
 }

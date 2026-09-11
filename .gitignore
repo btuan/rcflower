@@ -3,3 +3,4 @@ state/
 **venv/
 .venv/
 *.pyc
+*.DS_Store
