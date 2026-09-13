@@ -372,8 +372,11 @@ def main() -> None:
     grabber = LatestFrameGrabber(cap).start()
     print(f"[{utc_ts()}] [detect] started successfully: model={args.model}, labels={args.labels}, camera={args.camera}, backend={args.backend_url or 'disabled'}, use_vulkan={args.use_vulkan:1}")
 
+    # Used to compute frame rate
     fps = 0.0
     prev_time = time.time()
+
+    # Controls when to log diagnostics
     last_diag_time = 0.0
 
     try:
@@ -403,6 +406,7 @@ def main() -> None:
             if args.backend_url:
                 post_state(args.backend_url, state)
 
+            # Compute moving average frame rate
             now = time.time()
             fps = 0.9 * fps + 0.1 * (1.0 / max(now - prev_time, 1e-6))
             prev_time = now
