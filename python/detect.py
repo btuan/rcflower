@@ -307,6 +307,30 @@ def post_state(url: str, state: dict, timeout: float = 1.0) -> None:
         print(f"[{utc_ts()}] [detect] failed to POST state to {url}: {e}")
 
 
+def write_image(tensor: np.ndarray, captured_at: float, image_write_path: Path) -> float:
+    """Write the normalized, CHW RGB model input as a standard JPEG image."""
+    # `preprocess` produces a contiguous float32 tensor in CHW RGB order, in
+    # [0, 1]. OpenCV expects an HWC BGR uint8 image for JPEG output.
+    image = np.clip(np.transpose(tensor, (1, 2, 0)) * 255.0, 0, 255).astype(np.uint8)
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+    # Measure how long it takes to write the file.
+    img_write_start_time = time.time()
+    img_filename = (
+        "IMG_" + datetime.fromtimestamp(captured_at).strftime(r"%Y%m%d_%H%M%S")
+        + ".jpg"
+    )
+    img_path = image_write_path / img_filename
+    if not cv2.imwrite(str(img_path), image):
+        raise RuntimeError(f"Could not write image to {img_path}")
+
+    # Log image path and time elapsed
+    now = time.time()
+    img_write_elapsed = now - img_write_start_time
+    print(f"[{utc_ts()}] [detect] Wrote {img_path} ({img_write_elapsed:.4f} seconds)")
+    return now
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--camera", type=int, default=0, help="Webcam device index")
@@ -335,6 +359,10 @@ def main() -> None:
     parser.add_argument(
         "--backend-url", type=str, default=BACKEND_URL,
         help="Backend URL to POST detection state to. Set to '' to disable.",
+    )
+    parser.add_argument(
+        "--image-write-path", type=Path, default=None,
+        help="Directory to write images for model calibration. If not provided, images will not be written."
     )
     parser.add_argument(
         "--headless", action="store_true",
@@ -379,6 +407,13 @@ def main() -> None:
     # Controls when to log diagnostics
     last_diag_time = 0.0
 
+    # Ensure that the image write directory exists if recording is enabled
+    if args.image_write_path:
+        args.image_write_path.mkdir(parents=True, exist_ok=True)
+
+    # Controls when to save images for the calibration dataset
+    last_img_write_time = 0.0
+
     try:
         while True:
             got = grabber.latest()
@@ -415,6 +450,12 @@ def main() -> None:
             if now - last_diag_time >= 1.0:
                 print(f"[{utc_ts()}] [detect] fps={fps:.1f} detections={len(state['detections'])} backend={args.backend_url or 'disabled'} use_vulkan={args.use_vulkan:1}")
                 last_diag_time = now
+
+            # Default: save an image every 60.0 seconds
+            # Images are not written if args.image_write_path was not provided
+            if args.image_write_path and now - last_img_write_time >= 60.0:
+                now = write_image(tensor, captured_at, args.image_write_path)
+                last_img_write_time = now
 
             if not args.headless:
                 draw_detections(frame, boxes, confidences, class_ids, labels)
