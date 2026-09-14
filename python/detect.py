@@ -407,8 +407,8 @@ def main() -> None:
             fps = 0.9 * fps + 0.1 * (1.0 / max(now - prev_time, 1e-6))
             prev_time = now
 
-            # Heartbeat log: print diagnostics every 1.0 seconds
-            if now - last_diag_time >= 1.0:
+            # Heartbeat log: print diagnostics on startup and every 30.0 seconds thereafter
+            if now - last_diag_time >= 30.0:
                 print(f"[{utc_ts()}] [detect] fps={fps:.1f} detections={len(state['detections'])} backend={args.backend_url or 'disabled'} use_vulkan={args.use_vulkan:1}")
                 last_diag_time = now
 
