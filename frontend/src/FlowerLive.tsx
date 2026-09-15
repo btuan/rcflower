@@ -27,7 +27,11 @@ const GLB: Record<Mood, string> = {
   dead: glbDead,
 };
 
-const MAX_YAW = (35 * Math.PI) / 180;
+// Wide on purpose: the head is small on the kiosk display, so a modest yaw reads as nothing.
+const MAX_YAW = (75 * Math.PI) / 180;
+// Gentle idle sway layered on the follow target while anyone is in frame.
+const SWAY_AMPLITUDE = (6 * Math.PI) / 180;
+const SWAY_PERIOD_S = 3.5;
 const DROOP_TAU = 2; // seconds, smoothing for health-driven droop/tilt
 const TRACK_STALE_MS = 1500;
 
@@ -49,7 +53,9 @@ function isMood(v: unknown): v is Mood {
 
 export default function FlowerLive() {
   const params = new URLSearchParams(window.location.search);
-  const mirror = params.get("mirror") === "1";
+  // Camera and display face the same way, so the raw camera x is reversed for a
+  // viewer in front of the flower: mirror by default; `?mirror=0` turns it off.
+  const mirror = params.get("mirror") !== "0";
   const debug = params.get("debug") === "1";
 
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -224,7 +230,10 @@ export default function FlowerLive() {
 
         // Track -> yaw. Stale target (no track event recently) snaps back to 0.
         const fresh = trackNRef.current > 0 && performance.now() - trackAtRef.current < TRACK_STALE_MS;
-        const targetYaw = fresh ? yawTarget(trackCxRef.current, mirror, MAX_YAW) : 0;
+        const sway = fresh
+          ? SWAY_AMPLITUDE * Math.sin((2 * Math.PI * now) / 1000 / SWAY_PERIOD_S)
+          : 0;
+        const targetYaw = fresh ? yawTarget(trackCxRef.current, mirror, MAX_YAW) + sway : 0;
         yawStateRef.current = stepYawSpring(yawStateRef.current, targetYaw, dt, DEFAULT_YAW_SPRING_PARAMS);
         root.rotation.y = yawStateRef.current.yaw;
       }
