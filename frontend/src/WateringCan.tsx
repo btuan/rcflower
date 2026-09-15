@@ -48,10 +48,17 @@ const SURFACE_TILT_DAMPING = 0.3;
 const fmt = (n: number | null | undefined, digits = 1) =>
   n === null || n === undefined ? "—" : n.toFixed(digits);
 
+// Debug hook: `?debug=true` shows the pour counter, gesture phase and sensor
+// readout. Everything behind it is development scaffolding -- the production
+// page is just the can, the twist and the water.
+function isDebugEnabled(): boolean {
+  return new URLSearchParams(window.location.search).get("debug") === "true";
+}
+
 const PHASE_LABEL: Record<string, string> = {
   idle: "Hold upright, facing you",
-  armed: "Ready — twist counterclockwise",
-  fired: "Pouring — twist back to stop",
+  armed: "Ready — tilt counterclockwise",
+  fired: "Pouring — tilt back to stop",
 };
 
 /**
@@ -105,6 +112,35 @@ export default function WateringCan() {
   // frame, so draining never goes through React state.
   const levelRef = useRef({ value: 1 });
   const drainRef = useRef<gsap.core.Tween | null>(null);
+  // The water box's own size, measured rather than taken from
+  // window.innerWidth/innerHeight: on iOS those track the *visual* viewport
+  // (they shrink as the URL bar shows) while a fixed element is laid out
+  // against the larger layout viewport, so drawing to innerHeight left the
+  // shape and its container disagreeing. Cached on resize instead of read per
+  // frame, to keep the ticker from forcing a layout every tick.
+  const boxRef = useRef({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  });
+
+  useEffect(() => {
+    const measure = () => {
+      const rect = svgRef.current?.getBoundingClientRect();
+      boxRef.current = {
+        width: rect?.width || window.innerWidth,
+        height: rect?.height || window.innerHeight,
+      };
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    window.addEventListener("orientationchange", measure);
+    window.visualViewport?.addEventListener("resize", measure);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("orientationchange", measure);
+      window.visualViewport?.removeEventListener("resize", measure);
+    };
+  }, []);
 
   const handleStart = () => {
     // Both the fullscreen request and screen.orientation.lock() require a
@@ -113,6 +149,10 @@ export default function WateringCan() {
     void start();
   };
 
+  // Lazy initialiser rather than a ref: reading `.current` during render is
+  // what react-hooks/refs flags. Toggling the query param needs a reload,
+  // which is fine for a debug switch.
+  const [debug] = useState(isDebugEnabled);
   const [twists, setTwists] = useState(0);
   const [pouring, setPouring] = useState(false);
   const [pourFrame, setPourFrame] = useState(0);
@@ -136,11 +176,10 @@ export default function WateringCan() {
         );
 
         const amplitude = 6 + splash; // 6 = calm baseline
-        const height = window.innerHeight;
-        // Span the actual viewport: with only the surface leaning there are no
-        // corners to hide, and this pivots the lean about the middle of the
+        // Span the water box exactly: with only the surface leaning there are
+        // no corners to hide, and this pivots the lean about the middle of the
         // screen instead of a point off to the right.
-        const width = window.innerWidth;
+        const { width, height } = boxRef.current;
         if (pathRef.current) {
           pathRef.current.setAttribute(
             "d",
@@ -252,7 +291,16 @@ export default function WateringCan() {
     [],
   );
 
-  const { phase, progress } = useTwistGesture(listening, handlers);
+  const { phase, progress } = useTwistGesture(listening, handlers, {
+    // How square-on the screen has to be before a twist counts. |u.z| is the
+    // sine of the phone's recline from vertical, so the default 0.35 demands
+    // the phone be held within ~20deg of upright -- fussier than anyone
+    // naturally holds a watering can. 0.6 allows ~37deg of forward/back tilt,
+    // and the lenient mid-pour threshold moves with it to ~58deg so tipping
+    // further while pouring still doesn't cancel.
+    armFacing: 0.6,
+    fireFacing: 0.85,
+  });
 
   const { beta, gamma } = orientation;
   const hasTilt = beta !== null && gamma !== null;
@@ -264,28 +312,30 @@ export default function WateringCan() {
     orientationRef.current = { roll: roll ?? 0, tilt: tilt ?? 0 };
   }, [roll, tilt]);
 
-  const rows: Array<[string, string]> = [
-    ["absolute", String(orientation.absolute)],
-    ["alpha", fmt(orientation.alpha)],
-    ["beta", fmt(beta)],
-    ["gamma", fmt(gamma)],
-    ["u.x", fmt(up?.x, 3)],
-    ["u.y", fmt(up?.y, 3)],
-    ["u.z", fmt(up?.z, 3)],
-    ["roll", fmt(roll)],
-    ["tilt", fmt(tilt)],
-    ["phase", phase],
-    ["screen.orientation.type", lockStatus.orientationType ?? "—"],
-    ["screen.orientation.angle", fmt(lockStatus.orientationAngle, 0)],
-    [
-      "lock",
-      lockStatus.locked
-        ? "native"
-        : lockStatus.fallbackActive
-          ? "css fallback"
-          : "none",
-    ],
-  ];
+  const rows: Array<[string, string]> = !debug
+    ? []
+    : [
+        ["absolute", String(orientation.absolute)],
+        ["alpha", fmt(orientation.alpha)],
+        ["beta", fmt(beta)],
+        ["gamma", fmt(gamma)],
+        ["u.x", fmt(up?.x, 3)],
+        ["u.y", fmt(up?.y, 3)],
+        ["u.z", fmt(up?.z, 3)],
+        ["roll", fmt(roll)],
+        ["tilt", fmt(tilt)],
+        ["phase", phase],
+        ["screen.orientation.type", lockStatus.orientationType ?? "—"],
+        ["screen.orientation.angle", fmt(lockStatus.orientationAngle, 0)],
+        [
+          "lock",
+          lockStatus.locked
+            ? "native"
+            : lockStatus.fallbackActive
+              ? "css fallback"
+              : "none",
+        ],
+      ];
 
   return (
     <div
@@ -419,28 +469,38 @@ export default function WateringCan() {
         </div>
       )}
 
-      <button
-        onClick={logWatering}
-        style={{
-          fontSize: 18,
-          padding: "14px 22px",
-          borderRadius: 10,
-          border: "1px solid #ccc",
-          background: "white",
-          cursor: "pointer",
-        }}
-      >
-        Debug: Trigger water
-      </button>
+      {debug && (
+        <button
+          onClick={logWatering}
+          style={{
+            fontSize: 18,
+            padding: "14px 22px",
+            borderRadius: 10,
+            border: "1px solid #ccc",
+            background: "white",
+            cursor: "pointer",
+          }}
+        >
+          Debug: Trigger water
+        </button>
+      )}
 
       <svg
         ref={svgRef}
         style={{
-          width: "100svw",
-          height: "100svh",
-          position: "absolute",
-          bottom: 0,
-          left: 0,
+          // Fixed, not absolute: with no positioned ancestor, `absolute`
+          // anchors to the initial containing block, so `bottom: 0` was one
+          // viewport-height down the *document* and slid away as the page
+          // scrolled. Fixed pins it to the screen.
+          //
+          // inset: 0 rather than 100svw/100svh: `svh` is the *smallest*
+          // viewport height (URL bar showing), which left an uncovered strip
+          // at the top once the bar collapsed. With viewport-fit=cover in
+          // index.html this now bleeds under the notch and home indicator.
+          position: "fixed",
+          inset: 0,
+          width: "100%",
+          height: "100%",
           pointerEvents: "none",
         }}
       >
@@ -461,43 +521,47 @@ export default function WateringCan() {
 
       {listening && (
         <>
-          <div
-            style={{
-              padding: 28,
-              marginBottom: 16,
-              borderRadius: 12,
-              textAlign: "center",
-              background: pouring ? "#1d9e75" : "#f1efe8",
-              color: pouring ? "white" : "#2c2c2a",
-              transition: "background 200ms",
-            }}
-          >
-            <div style={{ fontSize: 44, fontWeight: 500, lineHeight: 1.1 }}>
-              {twists}
-            </div>
-            <div style={{ fontSize: 14, opacity: 0.85 }}>
-              {twists === 1 ? "pour" : "pours"}
-            </div>
-          </div>
-
-          <div
-            style={{
-              height: 8,
-              borderRadius: 4,
-              background: "#e6e4dc",
-              overflow: "hidden",
-              marginBottom: 10,
-            }}
-          >
+          {debug && (
             <div
               style={{
-                height: "100%",
-                width: `${progress * 100}%`,
-                background: pouring ? "#1d9e75" : "#85b7eb",
-                transition: "width 80ms linear",
+                padding: 28,
+                marginBottom: 16,
+                borderRadius: 12,
+                textAlign: "center",
+                background: pouring ? "#1d9e75" : "#f1efe8",
+                color: pouring ? "white" : "#2c2c2a",
+                transition: "background 200ms",
               }}
-            />
-          </div>
+            >
+              <div style={{ fontSize: 44, fontWeight: 500, lineHeight: 1.1 }}>
+                {twists}
+              </div>
+              <div style={{ fontSize: 14, opacity: 0.85 }}>
+                {twists === 1 ? "pour" : "pours"}
+              </div>
+            </div>
+          )}
+
+          {debug && (
+            <div
+              style={{
+                height: 8,
+                borderRadius: 4,
+                background: "#e6e4dc",
+                overflow: "hidden",
+                marginBottom: 10,
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${progress * 100}%`,
+                  background: pouring ? "#1d9e75" : "#85b7eb",
+                  transition: "width 80ms linear",
+                }}
+              />
+            </div>
+          )}
 
           <p
             style={{
@@ -510,30 +574,32 @@ export default function WateringCan() {
             {PHASE_LABEL[phase]}
           </p>
 
-          <details>
-            <summary
-              style={{ fontSize: 14, color: "#5f5e5a", cursor: "pointer" }}
-            >
-              Sensor readout
-            </summary>
-            <table
-              style={{
-                fontFamily: "ui-monospace, monospace",
-                fontSize: 13,
-                marginTop: 10,
-                borderSpacing: "12px 3px",
-              }}
-            >
-              <tbody>
-                {rows.map(([label, value]) => (
-                  <tr key={label}>
-                    <td style={{ color: "#888780" }}>{label}</td>
-                    <td style={{ textAlign: "right" }}>{value}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </details>
+          {debug && (
+            <details>
+              <summary
+                style={{ fontSize: 14, color: "#5f5e5a", cursor: "pointer" }}
+              >
+                Sensor readout
+              </summary>
+              <table
+                style={{
+                  fontFamily: "ui-monospace, monospace",
+                  fontSize: 13,
+                  marginTop: 10,
+                  borderSpacing: "12px 3px",
+                }}
+              >
+                <tbody>
+                  {rows.map(([label, value]) => (
+                    <tr key={label}>
+                      <td style={{ color: "#888780" }}>{label}</td>
+                      <td style={{ textAlign: "right" }}>{value}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+          )}
         </>
       )}
     </div>
