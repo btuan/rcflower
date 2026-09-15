@@ -121,6 +121,140 @@ export function computePrimaryTrack(
   };
 }
 
+/** Intersection-over-union of two [x1, y1, x2, y2] boxes. Pure, exported for testing. */
+export function iou(a: number[], b: number[]): number {
+  const [ax1, ay1, ax2, ay2] = a;
+  const [bx1, by1, bx2, by2] = b;
+  const ix1 = Math.max(ax1!, bx1!);
+  const iy1 = Math.max(ay1!, by1!);
+  const ix2 = Math.min(ax2!, bx2!);
+  const iy2 = Math.min(ay2!, by2!);
+  const iw = Math.max(0, ix2 - ix1);
+  const ih = Math.max(0, iy2 - iy1);
+  const interArea = iw * ih;
+  if (interArea <= 0) return 0;
+  const areaA = Math.max(0, ax2! - ax1!) * Math.max(0, ay2! - ay1!);
+  const areaB = Math.max(0, bx2! - bx1!) * Math.max(0, by2! - by1!);
+  const union = areaA + areaB - interArea;
+  return union > 0 ? interArea / union : 0;
+}
+
+type Track = {
+  id: number;
+  box: number[]; // [x1, y1, x2, y2] frame px
+  conf: number;
+  lastSeenMs: number;
+  hits: number;
+};
+
+const IOU_MATCH_THRESHOLD = 0.3;
+const TRACK_EMA_ALPHA = 0.6;
+const TRACK_STALE_MS = 700;
+const PRIMARY_MIN_HITS = 2;
+
+/**
+ * A small pure(-ish; internal mutable state) IoU tracker that keeps the
+ * "primary" person sticky across frames instead of re-picking the largest
+ * box every frame. Exported for testing.
+ */
+export class PrimaryTracker {
+  private tracks: Track[] = [];
+  private nextId = 1;
+  private primaryId: number | null = null;
+
+  /**
+   * Advance the tracker by one frame. `detections` should already be
+   * filtered/left as-is -- only `person` detections with a box are used.
+   * Returns the normalized primary (plus its track id), or null.
+   */
+  update(
+    detections: Detection[],
+    frameSize: [number, number] | undefined,
+    nowMs: number,
+  ): (PrimaryTrack & { id: number }) | null {
+    const people = detections.filter(
+      (d): d is Detection & { box: number[] } =>
+        d.label === "person" && Array.isArray(d.box) && d.box.length === 4,
+    );
+
+    // Greedily match detections to existing tracks by IoU, highest first.
+    const candidates: { trackIdx: number; detIdx: number; iou: number }[] = [];
+    for (let ti = 0; ti < this.tracks.length; ti++) {
+      for (let di = 0; di < people.length; di++) {
+        const score = iou(this.tracks[ti]!.box, people[di]!.box);
+        if (score >= IOU_MATCH_THRESHOLD) candidates.push({ trackIdx: ti, detIdx: di, iou: score });
+      }
+    }
+    candidates.sort((a, b) => b.iou - a.iou);
+
+    const matchedTracks = new Set<number>();
+    const matchedDets = new Set<number>();
+    for (const c of candidates) {
+      if (matchedTracks.has(c.trackIdx) || matchedDets.has(c.detIdx)) continue;
+      matchedTracks.add(c.trackIdx);
+      matchedDets.add(c.detIdx);
+      const track = this.tracks[c.trackIdx]!;
+      const det = people[c.detIdx]!;
+      const newBox = det.box;
+      track.box = track.box.map((v, i) => v * (1 - TRACK_EMA_ALPHA) + newBox[i]! * TRACK_EMA_ALPHA);
+      track.conf = det.confidence ?? 0;
+      track.lastSeenMs = nowMs;
+      track.hits += 1;
+    }
+
+    // Unmatched detections start new tracks.
+    for (let di = 0; di < people.length; di++) {
+      if (matchedDets.has(di)) continue;
+      const det = people[di]!;
+      this.tracks.push({
+        id: this.nextId++,
+        box: [...det.box],
+        conf: det.confidence ?? 0,
+        lastSeenMs: nowMs,
+        hits: 1,
+      });
+    }
+
+    // Drop stale tracks.
+    this.tracks = this.tracks.filter((t) => nowMs - t.lastSeenMs <= TRACK_STALE_MS);
+
+    // Sticky primary: keep it if it still exists.
+    let primary = this.primaryId !== null ? this.tracks.find((t) => t.id === this.primaryId) : undefined;
+
+    if (!primary) {
+      const eligible = this.tracks.filter((t) => t.hits >= PRIMARY_MIN_HITS);
+      let best: Track | null = null;
+      let bestArea = -1;
+      for (const t of eligible) {
+        const [x1, y1, x2, y2] = t.box;
+        const area = Math.max(0, x2! - x1!) * Math.max(0, y2! - y1!);
+        if (area > bestArea) {
+          bestArea = area;
+          best = t;
+        }
+      }
+      primary = best ?? undefined;
+      this.primaryId = primary ? primary.id : null;
+    }
+
+    if (!primary || !frameSize) return null;
+    const [fw, fh] = frameSize;
+    if (!(fw > 0) || !(fh > 0)) return null;
+
+    const [x1, y1, x2, y2] = primary.box;
+    return {
+      id: primary.id,
+      cx: ((x1! + x2!) / 2) / fw,
+      cy: ((y1! + y2!) / 2) / fh,
+      w: (x2! - x1!) / fw,
+      h: (y2! - y1!) / fh,
+      conf: primary.conf,
+    };
+  }
+}
+
+const primaryTracker = new PrimaryTracker();
+
 /** Python sends unix seconds (float); everything downstream (latency ring, SSE) uses ms epoch. */
 const toMs = (secs: number | undefined): number | null =>
   secs === undefined ? null : Math.round(secs * 1000);
@@ -159,10 +293,13 @@ export function ingestDetectionState(data: unknown): DetectionState | null {
  */
 function emitTrack(parsed: DetectionState, timing: StateTiming): void {
   const n = parsed.detections.filter((d) => d.label === "person").length;
+  const nowMs = timing.capturedAt ?? timing.receivedAt;
+  const tracked = primaryTracker.update(parsed.detections, parsed.frameSize, nowMs);
+
   if (n === 0 && lastTrackN === 0) return;
   lastTrackN = n;
 
-  const primary = n > 0 ? computePrimaryTrack(parsed.detections, parsed.frameSize) : null;
+  const primary = n > 0 ? tracked : null;
   if (n > 0 && !primary) return; // no frameSize -- can't normalize, skip per contract
 
   const event: TrackEvent = { n, primary, capturedAt: timing.capturedAt };
