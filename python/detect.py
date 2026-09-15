@@ -13,6 +13,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
@@ -53,6 +54,21 @@ def load_labels(path: Path) -> list[str]:
     return path.read_text(encoding="utf-8").strip().splitlines()
 
 
+@dataclass
+class Fit:
+    """Maps model-space (preprocessed tensor) pixel coords back to frame-space.
+
+    model_x = (frame_x - offset_x) * scale_x
+    model_y = (frame_y - offset_y) * scale_y
+    so frame_x = model_x / scale_x + offset_x, etc.
+    """
+
+    scale_x: float
+    scale_y: float
+    offset_x: float
+    offset_y: float
+
+
 def letterbox(frame: np.ndarray, size: int) -> tuple[np.ndarray, float, int, int]:
     """Resize + pad frame to a square (size, size) image, preserving aspect ratio."""
     h, w = frame.shape[:2]
@@ -67,19 +83,41 @@ def letterbox(frame: np.ndarray, size: int) -> tuple[np.ndarray, float, int, int
     return padded, scale, left, top
 
 
-def preprocess(frame: np.ndarray, size: int) -> tuple[np.ndarray, float, int, int]:
-    padded, scale, left, top = letterbox(frame, size)
-    rgb = cv2.cvtColor(padded, cv2.COLOR_BGR2RGB)
+def preprocess(frame: np.ndarray, size: int, fit: str = "crop") -> tuple[np.ndarray, Fit]:
+    """Fit `frame` into a (size, size) model input using the given strategy.
+
+    fit: "crop" (center-crop to a square, then resize -- no padding),
+    "squish" (resize directly to (size, size), ignoring aspect ratio), or
+    "letterbox" (resize preserving aspect, pad with 114 to a square).
+    """
+    h, w = frame.shape[:2]
+
+    if fit == "crop":
+        side = min(h, w)
+        top = (h - side) // 2
+        left = (w - side) // 2
+        square = frame[top : top + side, left : left + side]
+        resized = cv2.resize(square, (size, size), interpolation=cv2.INTER_LINEAR)
+        scale = size / side
+        geom = Fit(scale_x=scale, scale_y=scale, offset_x=left, offset_y=top)
+    elif fit == "squish":
+        resized = cv2.resize(frame, (size, size), interpolation=cv2.INTER_LINEAR)
+        geom = Fit(scale_x=size / w, scale_y=size / h, offset_x=0.0, offset_y=0.0)
+    elif fit == "letterbox":
+        resized, scale, left, top = letterbox(frame, size)
+        geom = Fit(scale_x=scale, scale_y=scale, offset_x=-left / scale, offset_y=-top / scale)
+    else:
+        raise ValueError(f"Unknown fit strategy: {fit}")
+
+    rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
     tensor = rgb.astype(np.float32) / 255.0
     tensor = np.ascontiguousarray(np.transpose(tensor, (2, 0, 1)))  # HWC -> CHW
-    return tensor, scale, left, top
+    return tensor, geom
 
 
 def postprocess(
     output: np.ndarray,
-    scale: float,
-    pad_left: int,
-    pad_top: int,
+    fit: Fit,
     conf_threshold: float,
     iou_threshold: float,
     class_ids_filter: set[int] | None = None,
@@ -117,12 +155,13 @@ def postprocess(
     if len(boxes_xywh) == 0:
         return np.empty((0, 4)), np.empty((0,)), np.empty((0,), dtype=int)
 
-    # Undo letterbox padding/scaling, in image pixel coordinates.
+    # Map model-space coords back to original frame pixel coordinates:
+    # frame_x = model_x / scale_x + offset_x (inverse of Fit's mapping).
     cx, cy, w, h = boxes_xywh[:, 0], boxes_xywh[:, 1], boxes_xywh[:, 2], boxes_xywh[:, 3]
-    x1 = (cx - w / 2 - pad_left) / scale
-    y1 = (cy - h / 2 - pad_top) / scale
-    box_w = w / scale
-    box_h = h / scale
+    x1 = (cx - w / 2) / fit.scale_x + fit.offset_x
+    y1 = (cy - h / 2) / fit.scale_y + fit.offset_y
+    box_w = w / fit.scale_x
+    box_h = h / fit.scale_y
     boxes_xywh_for_nms = np.stack([x1, y1, box_w, box_h], axis=1)
 
     indices = cv2.dnn.NMSBoxes(
@@ -331,6 +370,16 @@ def main() -> None:
         "--threads", type=int, default=1,
         help="NCNN CPU thread count. Pi 4B bench (320px, 2026-09-15): 1 thread=189ms/frame at 1.0 core, 3 threads=127ms at 2.8 cores -- threads scale poorly, so default to 1 and leave cores for the UI.",
     )
+    parser.add_argument(
+        "--input-size", type=int, default=224,
+        help="Model input size in pixels (square). Must be a multiple of 32.",
+    )
+    parser.add_argument(
+        "--fit", type=str, default="crop", choices=["crop", "squish", "letterbox"],
+        help="Strategy for fitting the camera frame into --input-size: "
+        "crop (center-crop to a square, then resize), squish (resize directly, ignoring "
+        "aspect ratio), or letterbox (resize preserving aspect, pad with gray).",
+    )
     parser.add_argument("--state-path", type=Path, default=STATE_PATH, help="Detection state JSON output path")
     parser.add_argument(
         "--backend-url", type=str, default=BACKEND_URL,
@@ -342,6 +391,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if args.input_size % 32 != 0:
+        raise ValueError(f"--input-size must be a multiple of 32, got {args.input_size}")
+
     labels = load_labels(args.labels)
 
     class_ids_filter: set[int] | None = None
@@ -352,7 +404,6 @@ def main() -> None:
         if unknown:
             raise ValueError(f"Unknown class label(s): {', '.join(sorted(unknown))}")
 
-    input_size = 320
     if args.model.suffix.lower() == ".param":
         model_bin = args.model.with_suffix(".bin")
     else:
@@ -370,7 +421,7 @@ def main() -> None:
         raise RuntimeError(f"Could not open camera index {args.camera}")
 
     grabber = LatestFrameGrabber(cap).start()
-    print(f"[{utc_ts()}] [detect] started successfully: model={args.model}, labels={args.labels}, camera={args.camera}, backend={args.backend_url or 'disabled'}, use_vulkan={args.use_vulkan:1}")
+    print(f"[{utc_ts()}] [detect] started successfully: model={args.model}, labels={args.labels}, camera={args.camera}, backend={args.backend_url or 'disabled'}, use_vulkan={args.use_vulkan:1}, input_size={args.input_size}, fit={args.fit}")
 
     fps = 0.0
     prev_time = time.time()
@@ -385,7 +436,7 @@ def main() -> None:
             frame, captured_at = got
             infer_started_at = time.time()  # captured_at -> here == frame age
 
-            tensor, scale, pad_left, pad_top = preprocess(frame, input_size)
+            tensor, fit = preprocess(frame, args.input_size, args.fit)
             in_mat = NCNN.Mat(tensor).clone()
             ex = net.create_extractor()
             ex.input("in0", in_mat)
@@ -393,7 +444,7 @@ def main() -> None:
             output = np.asarray(out)
 
             boxes, confidences, class_ids = postprocess(
-                output, scale, pad_left, pad_top, args.conf, args.iou, class_ids_filter
+                output, fit, args.conf, args.iou, class_ids_filter
             )
             inferred_at = time.time()
             state = build_state(
