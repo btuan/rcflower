@@ -66,7 +66,7 @@ const MOOD_IMAGES: Record<
 export function Flower() {
   // Read once on mount; toggling the query param requires a reload, which is
   // fine for a debug switch.
-  const debug = useRef(isDebugEnabled()).current;
+  const [debug] = useState(isDebugEnabled);
   // The mood the live SSE feed last reported. Mood (which image) is now decided
   // entirely by the server from watering recency; the client just displays it.
   const [liveMood, setLiveMood] = useState<Mood>("neutral");
