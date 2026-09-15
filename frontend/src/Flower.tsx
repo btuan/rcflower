@@ -23,10 +23,10 @@ const HAPPY_OSCILLATION_MS = 200;
 // FlowerHappy renders a touch bigger than FlowerNeutral each time it's the
 // one on screen, so the oscillation reads as a little pulse/bounce.
 const HAPPY_SCALE = 1.08;
-// Image should never take up more than 80% of the viewport's height. Cap the
-// base (unscaled) size below that so the happy pulse -- which scales up by
-// HAPPY_SCALE -- still peaks at exactly 80vh instead of overshooting it.
-const MAX_HEIGHT_VH = 80 / HAPPY_SCALE;
+// Fill as much of the viewport's height as possible. Cap the base (unscaled)
+// size below 100vh so the happy pulse -- which scales up by HAPPY_SCALE --
+// still peaks at exactly 100vh instead of overshooting it.
+const MAX_HEIGHT_VH = 100 / HAPPY_SCALE;
 // The images are square, so the rendered width tracks the height cap unless
 // the viewport itself is narrower.
 const IMG_SIZES = `min(100vw, ${MAX_HEIGHT_VH}vh)`;
@@ -123,12 +123,14 @@ export function Flower() {
     mood === "happy" ? oscFrame : mood;
 
   return (
-    <div>
-      <h1>I'm a flower!</h1>
-      <p>I am {mood}</p>
-      {wateredAt && (
-        <p>💧 watered {new Date(wateredAt).toLocaleTimeString()}</p>
-      )}
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
       {/* All frames stay mounted (stacked in one grid cell) so switching
           moods never triggers a new image request; only visibility toggles.
           Using visibility rather than display keeps the transform transition
