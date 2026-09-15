@@ -7,10 +7,12 @@ export type WateringEvent = {
   volumeMl: number | null;
   notes: string | null;
   srcIp: string | null;
+  /** Who watered, or null if they didn't say. */
+  name: string | null;
   wateredAt: number;
 };
 
-const COLUMNS = `id, trigger, duration_ms AS durationMs, volume_ml AS volumeMl, notes, src_ip AS srcIp, watered_at AS wateredAt`;
+const COLUMNS = `id, trigger, duration_ms AS durationMs, volume_ml AS volumeMl, notes, src_ip AS srcIp, waterer_name AS name, watered_at AS wateredAt`;
 
 const insertStmt = db.query<
   WateringEvent,
@@ -20,10 +22,11 @@ const insertStmt = db.query<
     $volumeMl: number | null;
     $notes: string | null;
     $srcIp: string | null;
+    $name: string | null;
   }
 >(`
-  INSERT INTO watering_events (trigger, duration_ms, volume_ml, notes, src_ip)
-  VALUES ($trigger, $durationMs, $volumeMl, $notes, $srcIp)
+  INSERT INTO watering_events (trigger, duration_ms, volume_ml, notes, src_ip, waterer_name)
+  VALUES ($trigger, $durationMs, $volumeMl, $notes, $srcIp, $name)
   RETURNING ${COLUMNS}
 `);
 
@@ -40,6 +43,7 @@ export function recordWatering(input: {
   volumeMl?: number | null;
   notes?: string | null;
   srcIp?: string | null;
+  name?: string | null;
 }): WateringEvent {
   const event = insertStmt.get({
     $trigger: input.trigger ?? "manual",
@@ -47,6 +51,7 @@ export function recordWatering(input: {
     $volumeMl: input.volumeMl ?? null,
     $notes: input.notes ?? null,
     $srcIp: input.srcIp ?? null,
+    $name: input.name ?? null,
   })!;
   for (const fn of listeners) fn(event);
   return event;

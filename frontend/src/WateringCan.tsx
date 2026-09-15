@@ -5,6 +5,7 @@ import { DEG, rollAngle, tiltFromFlat, upInDevice } from "./orientation";
 import { useDeviceOrientation } from "./useDeviceOrientation";
 import { useLockPortrait } from "./useLockPortrait";
 import { useTwistGesture } from "./useTwistGesture";
+import { getUserName, setUserName } from "./userCookie";
 import type { TwistHandlers } from "./useTwistGesture";
 import wateringCanUpright256 from "./assets/WateringCan/WateringCanUpright-256.webp";
 import wateringCanUpright512 from "./assets/WateringCan/WateringCanUpright-512.webp";
@@ -104,7 +105,7 @@ function wavePath(
 }
 
 export default function WateringCan() {
-  const { permission, error, listening, orientation, start } =
+  const { permission, error, listening, orientation, resuming, start } =
     useDeviceOrientation();
 
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -172,6 +173,14 @@ export default function WateringCan() {
   // what react-hooks/refs flags. Toggling the query param needs a reload,
   // which is fine for a debug switch.
   const [debug] = useState(isDebugEnabled);
+  // Who's watering, for the flower's "<name> watered at <time>" line. Read
+  // once on mount; null means we haven't been told.
+  const [userName, setName] = useState<string | null>(getUserName);
+  // Set once the name prompt has been answered *or* skipped, so dismissing it
+  // doesn't immediately re-open it. Skipping deliberately writes no cookie --
+  // the name is optional, and a later visit is free to ask again.
+  const [nameAsked, setNameAsked] = useState(() => getUserName() !== null);
+  const [nameDraft, setNameDraft] = useState("");
   const [twists, setTwists] = useState(0);
   const [pouring, setPouring] = useState(false);
   const [pourFrame, setPourFrame] = useState(0);
@@ -355,6 +364,7 @@ export default function WateringCan() {
         ["roll", fmt(roll)],
         ["tilt", fmt(tilt)],
         ["phase", phase],
+        ["name", userName ?? "(anonymous)"],
         ["screen.orientation.type", lockStatus.orientationType ?? "—"],
         ["screen.orientation.angle", fmt(lockStatus.orientationAngle, 0)],
         [
@@ -404,7 +414,7 @@ export default function WateringCan() {
         ));
       })()}
 
-      {!listening && (
+      {!listening && !resuming && (
         // Blocking overlay rather than an inline button: the tilt gesture is
         // the whole interaction, so there is nothing to do on this page until
         // motion is granted. The button is still a real tap, which is what
@@ -496,6 +506,117 @@ export default function WateringCan() {
               {error || permission === "denied" ? "Try again" : "Enable motion"}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Motion is the hard requirement, so it gets asked first; the name is
+          optional and only comes up once the page is actually usable. */}
+      {listening && !nameAsked && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="name-alert-title"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 2000,
+            display: "grid",
+            placeItems: "center",
+            padding: 24,
+            background: "rgba(20, 22, 20, 0.55)",
+            backdropFilter: "blur(2px)",
+          }}
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const trimmed = nameDraft.trim();
+              if (trimmed) setUserName(trimmed);
+              setName(trimmed || null);
+              setNameAsked(true);
+            }}
+            style={{
+              width: "min(320px, 100%)",
+              padding: 24,
+              borderRadius: 16,
+              background: "white",
+              boxShadow: "0 18px 40px rgba(0, 0, 0, 0.28)",
+              textAlign: "center",
+            }}
+          >
+            <h2
+              id="name-alert-title"
+              style={{ fontSize: 19, fontWeight: 600, margin: "0 0 8px" }}
+            >
+              Who's watering?
+            </h2>
+            <p
+              style={{
+                fontSize: 15,
+                lineHeight: 1.5,
+                color: "#5f5e5a",
+                margin: "0 0 18px",
+              }}
+            >
+              The flower will credit you by name. Leave it blank and you'll just
+              be &ldquo;Someone&rdquo;.
+            </p>
+
+            <input
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              placeholder="Your name"
+              autoFocus
+              maxLength={40}
+              autoComplete="name"
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                // 16px keeps iOS Safari from zooming in on focus.
+                fontSize: 16,
+                padding: "12px 14px",
+                marginBottom: 12,
+                borderRadius: 10,
+                border: "1px solid #ccc",
+              }}
+            />
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setNameDraft("");
+                  setNameAsked(true);
+                }}
+                style={{
+                  flex: 1,
+                  fontSize: 16,
+                  padding: "12px 16px",
+                  borderRadius: 10,
+                  border: "1px solid #ccc",
+                  background: "white",
+                  cursor: "pointer",
+                }}
+              >
+                Skip
+              </button>
+              <button
+                type="submit"
+                style={{
+                  flex: 1,
+                  fontSize: 16,
+                  padding: "12px 16px",
+                  borderRadius: 10,
+                  border: "1px solid #1d9e75",
+                  background: "#1d9e75",
+                  color: "white",
+                  cursor: "pointer",
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </form>
         </div>
       )}
 

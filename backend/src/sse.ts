@@ -1,7 +1,7 @@
 import { isPersonInFrame, onPersonChange } from "./detections.ts";
 import { getMood, onMoodChange } from "./mood.ts";
 import { onPourChange, pourState } from "./pour.ts";
-import { onWatering } from "./watering.ts";
+import { onWatering, recentWatering } from "./watering.ts";
 
 const encoder = new TextEncoder();
 
@@ -24,6 +24,12 @@ export function handleEvents(req: Request): Response {
       send("person", { inFrame: isPersonInFrame() });
       send("mood", { mood: getMood() });
       send("pour", pourState());
+      // Seed the newest watering so a page that just loaded can show who
+      // watered last, instead of waiting for the next one to happen. Flagged
+      // as a replay: it's history, possibly hours old, so the flower shows the
+      // credit line for it but must not celebrate it as a fresh watering.
+      const last = recentWatering(1)[0];
+      if (last) send("watering", { ...last, replay: true });
 
       const offMood = onMoodChange((mood) => send("mood", { mood }));
       const off = onPersonChange((inFrame, timing) =>
