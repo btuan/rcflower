@@ -29,6 +29,7 @@ MODEL_PATH = Path(__file__).parent / "yolov8n_ncnn_model" / "model.ncnn.param"
 MODEL_BIN_PATH = Path(__file__).parent / "yolov8n_ncnn_model" / "model.ncnn.bin"
 LABELS_PATH = Path(__file__).parent / "yolov8n_ncnn_model" / "metadata.yaml"
 STATE_PATH = Path(__file__).parent.parent / "state" / "detections.json"
+SNAPSHOT_PATH = Path(__file__).parent.parent / "state" / "frame.jpg"
 BACKEND_URL = "http://127.0.0.1:3000/api/detections"
 
 
@@ -259,6 +260,19 @@ class LatestFrameGrabber:
             return self._frame, self._captured_at
 
 
+def roi_from_fit(fit: Fit, frame_w: int, frame_h: int, size: int) -> list[float]:
+    """Frame-pixel rectangle [x1, y1, x2, y2] the model actually saw.
+
+    model_x = (frame_x - offset_x) * scale_x, so the model input spans
+    frame_x in [offset_x, offset_x + size/scale_x), clamped to the frame.
+    """
+    x1 = max(0.0, fit.offset_x)
+    y1 = max(0.0, fit.offset_y)
+    x2 = min(float(frame_w), fit.offset_x + size / fit.scale_x)
+    y2 = min(float(frame_h), fit.offset_y + size / fit.scale_y)
+    return [x1, y1, x2, y2]
+
+
 def build_state(
     boxes: np.ndarray,
     confidences: np.ndarray,
@@ -267,6 +281,8 @@ def build_state(
     captured_at: float,
     infer_started_at: float,
     inferred_at: float,
+    frame_size: tuple[int, int] | None = None,
+    roi: list[float] | None = None,
 ) -> dict:
     """Current detections + timing, as JSON-serializable state.
 
@@ -276,8 +292,13 @@ def build_state(
     `post_state()`, since that's the last moment before it leaves this
     process -- all three are unix seconds (`time.time()`), same clock as the
     backend (Python + backend run on the same Pi).
+
+    `frame_size` ([w, h]) and `roi` ([x1, y1, x2, y2], frame pixels) describe
+    the raw camera frame and the rectangle of it the model actually saw
+    (post `--fit`), so the frontend can rotate/position a 3D flower relative
+    to where the person is in the real frame.
     """
-    return {
+    state: dict = {
         "timestamp": captured_at,
         "capturedAt": captured_at,
         "inferStartedAt": infer_started_at,
@@ -291,6 +312,11 @@ def build_state(
             for box, conf, cls_id in zip(boxes, confidences, class_ids)
         ],
     }
+    if frame_size is not None:
+        state["frameSize"] = [int(frame_size[0]), int(frame_size[1])]
+    if roi is not None:
+        state["roi"] = [round(float(v), 1) for v in roi]
+    return state
 
 
 def write_state(path: Path, state: dict) -> None:
@@ -346,6 +372,40 @@ def post_state(url: str, state: dict, timeout: float = 1.0) -> None:
         print(f"[{utc_ts()}] [detect] failed to POST state to {url}: {e}")
 
 
+_last_snapshot_time = 0.0
+
+
+def write_snapshot(path: Path, frame: np.ndarray, interval: float, width: int = 320) -> None:
+    """At most once per `interval` seconds, write `frame` as a resized JPEG.
+
+    Budget: this must stay cheap on a Pi 4 (<5ms/sec average), so most calls
+    are a no-op timestamp check; the actual resize+encode only runs ~once a
+    second regardless of camera fps. Atomic write, mirroring `write_state`.
+    """
+    global _last_snapshot_time
+    now = time.time()
+    if now - _last_snapshot_time < interval:
+        return
+    _last_snapshot_time = now
+
+    h, w = frame.shape[:2]
+    scale = width / w
+    small = cv2.resize(frame, (width, max(1, int(round(h * scale)))), interpolation=cv2.INTER_AREA)
+    ok, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 70])
+    if not ok:
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(buf.tobytes())
+        os.replace(tmp_path, path)
+    except BaseException:
+        os.unlink(tmp_path)
+        raise
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--camera", type=int, default=0, help="Webcam device index")
@@ -381,6 +441,14 @@ def main() -> None:
         "aspect ratio), or letterbox (resize preserving aspect, pad with gray).",
     )
     parser.add_argument("--state-path", type=Path, default=STATE_PATH, help="Detection state JSON output path")
+    parser.add_argument(
+        "--snapshot-path", type=str, default=str(SNAPSHOT_PATH),
+        help="JPEG snapshot output path for debugging, resized to 320px wide. '' disables.",
+    )
+    parser.add_argument(
+        "--snapshot-interval", type=float, default=1.0,
+        help="Minimum seconds between snapshot writes.",
+    )
     parser.add_argument(
         "--backend-url", type=str, default=BACKEND_URL,
         help="Backend URL to POST detection state to. Set to '' to disable.",
@@ -447,12 +515,17 @@ def main() -> None:
                 output, fit, args.conf, args.iou, class_ids_filter
             )
             inferred_at = time.time()
+            frame_h, frame_w = frame.shape[:2]
+            roi = roi_from_fit(fit, frame_w, frame_h, args.input_size)
             state = build_state(
-                boxes, confidences, class_ids, labels, captured_at, infer_started_at, inferred_at
+                boxes, confidences, class_ids, labels, captured_at, infer_started_at, inferred_at,
+                frame_size=(frame_w, frame_h), roi=roi,
             )
             write_state(args.state_path, state)
             if args.backend_url:
                 post_state(args.backend_url, state)
+            if args.snapshot_path:
+                write_snapshot(Path(args.snapshot_path), frame, args.snapshot_interval)
 
             now = time.time()
             fps = 0.9 * fps + 0.1 * (1.0 / max(now - prev_time, 1e-6))

@@ -6,7 +6,7 @@ Frame is 640x480 (w x h). Model input size is 224.
 import numpy as np
 import pytest
 
-from detect import preprocess, postprocess
+from detect import preprocess, postprocess, roi_from_fit
 
 FRAME_W, FRAME_H = 640, 480
 SIZE = 224
@@ -66,6 +66,13 @@ def test_crop_edge_box_maps_back():
     assert len(boxes) == 1
     x1, y1, x2, y2 = boxes[0]
     assert x1 == pytest.approx(80.0, abs=1.0)
+
+
+def test_crop_roi():
+    frame = make_frame()
+    _, fit = preprocess(frame, SIZE, "crop")
+    roi = roi_from_fit(fit, FRAME_W, FRAME_H, SIZE)
+    assert roi == pytest.approx([80.0, 0.0, 560.0, 480.0], abs=1.0)
 
 
 def test_squish_different_x_y_scale():

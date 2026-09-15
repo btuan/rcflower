@@ -1,5 +1,5 @@
-import { isPersonInFrame, onPersonChange } from "./detections.ts";
-import { getMood, onMoodChange } from "./mood.ts";
+import { isPersonInFrame, onPersonChange, onTrack } from "./detections.ts";
+import { getHealth, getMood, getWateredAt, onMoodChange } from "./mood.ts";
 import { onPourChange, pourState } from "./pour.ts";
 import { onWatering } from "./watering.ts";
 
@@ -21,11 +21,15 @@ export function handleEvents(req: Request): Response {
         }
       };
 
+      const sendMood = () => send("mood", { mood: getMood(), health: getHealth(), wateredAt: getWateredAt() });
+
       send("person", { inFrame: isPersonInFrame() });
-      send("mood", { mood: getMood() });
+      sendMood();
       send("pour", pourState());
 
-      const offMood = onMoodChange((mood) => send("mood", { mood }));
+      const offMood = onMoodChange(() => sendMood());
+      // Health decays continuously even without a mood flip; re-send periodically.
+      const healthTimer = setInterval(sendMood, 5_000);
       const off = onPersonChange((inFrame, timing) =>
         send("person", {
           inFrame,
@@ -43,6 +47,7 @@ export function handleEvents(req: Request): Response {
         send("pour", { pouring, changedAt }),
       );
       const offWatering = onWatering((event) => send("watering", event));
+      const offTrack = onTrack((event) => send("track", event));
       // Comment line keeps proxies / load balancers from dropping the idle socket.
       const ping = setInterval(() => {
         try {
@@ -54,10 +59,12 @@ export function handleEvents(req: Request): Response {
 
       cleanup = () => {
         clearInterval(ping);
+        clearInterval(healthTimer);
         off();
         offMood();
         offPour();
         offWatering();
+        offTrack();
         try {
           controller.close();
         } catch {

@@ -7,17 +7,29 @@ Bun HTTP server. Single entry point for the app.
   browser<->server clock offset (NTP-style probe)
 - `GET /api/detections` — current detection state
 - `POST /api/detections` — ingest a detection state update; body
-  `{ timestamp: number, detections: { label: string, confidence?: number, box?: number[] }[], capturedAt?: number, inferredAt?: number, sentAt?: number }`.
+  `{ timestamp: number, detections: { label: string, confidence?: number, box?: number[] }[], capturedAt?: number, inferredAt?: number, sentAt?: number, frameSize?: [w, h], roi?: [x1, y1, x2, y2] }`.
   The three timing fields are unix seconds (float) stamped by
   `python/detect.py` around frame capture / inference / just-before-POST;
   they're optional (old clients / `curl` just show up as missing stages on
-  `/debug`). Records a `state_changes` row and broadcasts over SSE when
+  `/debug`). `frameSize` is the raw camera frame dims and `roi` is the
+  frame-pixel rectangle the model actually saw (after `--fit`), both also
+  optional. Records a `state_changes` row and broadcasts over SSE when
   `person_in_frame` flips. Also records a latency sample (see below) on every
   POST, not just transitions. Returns `202 { ok: true, personInFrame }`, or
   `400` if the body doesn't match the shape above.
+- `GET /api/detections/latest` — `{ frameSize, roi, detections, capturedAt }`
+  from the current state (nulls if nothing ingested yet). For the debug page.
+- `GET /api/debug/frame.jpg` — latest 320px-wide JPEG snapshot written by
+  `python/detect.py` (`state/frame.jpg`), `no-store`. `404` if it doesn't
+  exist yet.
 - `GET /api/events` — SSE stream; emits `person` events on change:
   `{ inFrame: boolean, t: { capturedAt, inferredAt, sentAt, receivedAt, broadcastAt } }`
-  (all ms epoch, null for any stage the POST didn't include)
+  (all ms epoch, null for any stage the POST didn't include); `mood` events
+  `{ mood, health, wateredAt }` on mood change and every 5s (health decays
+  continuously); `track` events `{ n, primary: { cx, cy, w, h, conf } | null, capturedAt }`
+  (primary box normalized 0..1 relative to `frameSize`) on every ingested
+  frame while `n > 0`, and once with `n: 0, primary: null` on the transition
+  to zero persons.
 - `GET /api/debug/latency` — `{ samples, stats }` for the frame
   capture→infer→sent→received→broadcast pipeline: `samples` is the last 300
   ingested detection POSTs (ring buffer, in-memory only), `stats` is
