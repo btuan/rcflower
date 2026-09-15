@@ -43,3 +43,9 @@ const hasColumn = (table: string, column: string): boolean =>
 if (!hasColumn("watering_events", "src_ip")) {
   db.exec("ALTER TABLE watering_events ADD COLUMN src_ip TEXT");
 }
+
+// Who watered, from the `user` cookie the watering-can page sets. Optional --
+// null means the waterer never gave a name, which the UI renders as "Someone".
+if (!hasColumn("watering_events", "waterer_name")) {
+  db.exec("ALTER TABLE watering_events ADD COLUMN waterer_name TEXT");
+}

@@ -5,6 +5,7 @@ import { DEG, rollAngle, tiltFromFlat, upInDevice } from "./orientation";
 import { useDeviceOrientation } from "./useDeviceOrientation";
 import { useLockPortrait } from "./useLockPortrait";
 import { useTwistGesture } from "./useTwistGesture";
+import { getUserName, setUserName } from "./userCookie";
 import type { TwistHandlers } from "./useTwistGesture";
 import wateringCanUpright256 from "./assets/WateringCan/WateringCanUpright-256.webp";
 import wateringCanUpright512 from "./assets/WateringCan/WateringCanUpright-512.webp";
@@ -44,14 +45,31 @@ const DRAIN_DURATION_S = 5;
 // How hard the surface leans with the device. Damped rather than 1:1 -- a
 // surface pinned exactly level reads as rigid, not as liquid settling.
 const SURFACE_TILT_DAMPING = 0.3;
+// How far the water box hangs below the bottom of its frame, as a fraction of
+// that frame's height, so the box's own edge is never visible and the fill
+// continues behind the browser chrome and the home indicator.
+const BOTTOM_OVERSHOOT = 0.2;
+// Where a full can's surface sits, as a fraction of the visible height below
+// the top of the screen. Keeps the water off the very top edge. The overshoot
+// above absorbs the same shift at the bottom, so nothing uncovers.
+const WATER_REST_OFFSET = 0.06;
+// Wave height with the water sitting still. Splash rides on top of this.
+const CALM_AMPLITUDE = 6;
 
 const fmt = (n: number | null | undefined, digits = 1) =>
   n === null || n === undefined ? "—" : n.toFixed(digits);
 
+// Debug hook: `?debug=true` shows the pour counter, gesture phase and sensor
+// readout. Everything behind it is development scaffolding -- the production
+// page is just the can, the twist and the water.
+function isDebugEnabled(): boolean {
+  return new URLSearchParams(window.location.search).get("debug") === "true";
+}
+
 const PHASE_LABEL: Record<string, string> = {
   idle: "Hold upright, facing you",
-  armed: "Ready — twist counterclockwise",
-  fired: "Pouring — twist back to stop",
+  armed: "Ready — tilt counterclockwise",
+  fired: "Pouring — tilt back to stop",
 };
 
 /**
@@ -87,7 +105,7 @@ function wavePath(
 }
 
 export default function WateringCan() {
-  const { permission, error, listening, orientation, start } =
+  const { permission, error, listening, orientation, resuming, start } =
     useDeviceOrientation();
 
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -95,6 +113,7 @@ export default function WateringCan() {
 
   const pathRef = useRef<SVGPathElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const waterBoxRef = useRef<HTMLDivElement | null>(null);
   // Latest roll/tilt, mirrored from React state so the gsap.ticker tick
   // (which runs every frame, outside React's render cycle) can read the
   // current value without needing to be a useGSAP dependency -- that would
@@ -105,6 +124,43 @@ export default function WateringCan() {
   // frame, so draining never goes through React state.
   const levelRef = useRef({ value: 1 });
   const drainRef = useRef<gsap.core.Tween | null>(null);
+  // The water box's own size, measured rather than taken from
+  // window.innerWidth/innerHeight: on iOS those track the *visual* viewport
+  // (they shrink as the URL bar shows) while a fixed element is laid out
+  // against the larger layout viewport, so drawing to innerHeight left the
+  // shape and its container disagreeing. Cached on resize instead of read per
+  // frame, to keep the ticker from forcing a layout every tick.
+  const boxRef = useRef({
+    width: window.innerWidth,
+    height: window.innerHeight,
+    // What the user can actually see, which is now shorter than the box. The
+    // drain is measured against this so an empty can puts the surface exactly
+    // at the bottom of the screen rather than somewhere in the overshoot.
+    visibleHeight: window.innerHeight,
+  });
+
+  useEffect(() => {
+    const el = waterBoxRef.current;
+    if (!el) return;
+    const measure = () => {
+      // clientWidth/Height, not getBoundingClientRect: the rect is the
+      // axis-aligned bounds *after* transforms, so under the portrait-lock
+      // counter-rotation it would report the box's width as its height.
+      const height = el.clientHeight || window.innerHeight;
+      boxRef.current = {
+        width: el.clientWidth || window.innerWidth,
+        height,
+        // Back out the overshoot to get the part that's actually on screen.
+        visibleHeight: height / (1 + BOTTOM_OVERSHOOT),
+      };
+    };
+    measure();
+    // Fires for viewport resizes, URL-bar collapse *and* the portrait-lock
+    // fallback restyling the root -- which no window event covers.
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const handleStart = () => {
     // Both the fullscreen request and screen.orientation.lock() require a
@@ -113,6 +169,18 @@ export default function WateringCan() {
     void start();
   };
 
+  // Lazy initialiser rather than a ref: reading `.current` during render is
+  // what react-hooks/refs flags. Toggling the query param needs a reload,
+  // which is fine for a debug switch.
+  const [debug] = useState(isDebugEnabled);
+  // Who's watering, for the flower's "<name> watered at <time>" line. Read
+  // once on mount; null means we haven't been told.
+  const [userName, setName] = useState<string | null>(getUserName);
+  // Set once the name prompt has been answered *or* skipped, so dismissing it
+  // doesn't immediately re-open it. Skipping deliberately writes no cookie --
+  // the name is optional, and a later visit is free to ask again.
+  const [nameAsked, setNameAsked] = useState(() => getUserName() !== null);
+  const [nameDraft, setNameDraft] = useState("");
   const [twists, setTwists] = useState(0);
   const [pouring, setPouring] = useState(false);
   const [pourFrame, setPourFrame] = useState(0);
@@ -135,31 +203,41 @@ export default function WateringCan() {
           Math.min(Math.abs(angularVelocity) * 4, 40),
         );
 
-        const amplitude = 6 + splash; // 6 = calm baseline
-        const height = window.innerHeight;
-        // Span the actual viewport: with only the surface leaning there are no
-        // corners to hide, and this pivots the lean about the middle of the
+        const amplitude = CALM_AMPLITUDE + splash;
+        // Span the water box exactly: with only the surface leaning there are
+        // no corners to hide, and this pivots the lean about the middle of the
         // screen instead of a point off to the right.
-        const width = window.innerWidth;
+        const { width, height, visibleHeight } = boxRef.current;
+        // The pour is a counterclockwise twist, which lifts the surface on the
+        // left, so the lean follows the roll's sign directly.
+        const tiltDeg = currentRoll * SURFACE_TILT_DAMPING;
+
         if (pathRef.current) {
           pathRef.current.setAttribute(
             "d",
-            wavePath(
-              width,
-              height,
-              amplitude,
-              2,
-              t * 2,
-              // The pour is a counterclockwise twist, which lifts the surface
-              // on the left, so the lean follows the roll's sign directly.
-              currentRoll * SURFACE_TILT_DAMPING,
-            ),
+            wavePath(width, height, amplitude, 2, t * 2, tiltDeg),
           );
+
           // Push the whole body of water down as the level drops, so the wavy
-          // top edge doubles as the surface. Recomputed from the live viewport
-          // height each frame, so a resize or URL-bar collapse stays correct.
+          // top edge doubles as the surface.
+          //
+          // The surface pivots about its centre, so tilting lifts one end
+          // above that centre by half the width times the slope. Draining only
+          // as far as `visibleHeight` would park the centre on the bottom edge
+          // and leave that raised end -- a wedge of water -- still on screen.
+          // Travelling the extra rise puts the highest point of the surface,
+          // wave crest included, exactly at the bottom edge when empty.
+          //
+          // The rise uses the calm amplitude rather than the live one: splash
+          // spikes hard while you're rolling the phone, and feeding that into
+          // the travel would jitter the whole body of water mid-drain.
+          const surfaceRise =
+            (Math.abs(Math.tan(tiltDeg * DEG)) * width) / 2 + CALM_AMPLITUDE;
+          const restOffset = WATER_REST_OFFSET * visibleHeight;
+          const drainTravel = visibleHeight - restOffset + surfaceRise;
+
           pathRef.current.style.transform = `translateY(${
-            (1 - levelRef.current.value) * height
+            restOffset + (1 - levelRef.current.value) * drainTravel
           }px)`;
         }
       };
@@ -252,7 +330,16 @@ export default function WateringCan() {
     [],
   );
 
-  const { phase, progress } = useTwistGesture(listening, handlers);
+  const { phase, progress } = useTwistGesture(listening, handlers, {
+    // How square-on the screen has to be before a twist counts. |u.z| is the
+    // sine of the phone's recline from vertical, so the default 0.35 demands
+    // the phone be held within ~20deg of upright -- fussier than anyone
+    // naturally holds a watering can. 0.6 allows ~37deg of forward/back tilt,
+    // and the lenient mid-pour threshold moves with it to ~58deg so tipping
+    // further while pouring still doesn't cancel.
+    armFacing: 0.6,
+    fireFacing: 0.85,
+  });
 
   const { beta, gamma } = orientation;
   const hasTilt = beta !== null && gamma !== null;
@@ -264,28 +351,31 @@ export default function WateringCan() {
     orientationRef.current = { roll: roll ?? 0, tilt: tilt ?? 0 };
   }, [roll, tilt]);
 
-  const rows: Array<[string, string]> = [
-    ["absolute", String(orientation.absolute)],
-    ["alpha", fmt(orientation.alpha)],
-    ["beta", fmt(beta)],
-    ["gamma", fmt(gamma)],
-    ["u.x", fmt(up?.x, 3)],
-    ["u.y", fmt(up?.y, 3)],
-    ["u.z", fmt(up?.z, 3)],
-    ["roll", fmt(roll)],
-    ["tilt", fmt(tilt)],
-    ["phase", phase],
-    ["screen.orientation.type", lockStatus.orientationType ?? "—"],
-    ["screen.orientation.angle", fmt(lockStatus.orientationAngle, 0)],
-    [
-      "lock",
-      lockStatus.locked
-        ? "native"
-        : lockStatus.fallbackActive
-          ? "css fallback"
-          : "none",
-    ],
-  ];
+  const rows: Array<[string, string]> = !debug
+    ? []
+    : [
+        ["absolute", String(orientation.absolute)],
+        ["alpha", fmt(orientation.alpha)],
+        ["beta", fmt(beta)],
+        ["gamma", fmt(gamma)],
+        ["u.x", fmt(up?.x, 3)],
+        ["u.y", fmt(up?.y, 3)],
+        ["u.z", fmt(up?.z, 3)],
+        ["roll", fmt(roll)],
+        ["tilt", fmt(tilt)],
+        ["phase", phase],
+        ["name", userName ?? "(anonymous)"],
+        ["screen.orientation.type", lockStatus.orientationType ?? "—"],
+        ["screen.orientation.angle", fmt(lockStatus.orientationAngle, 0)],
+        [
+          "lock",
+          lockStatus.locked
+            ? "native"
+            : lockStatus.fallbackActive
+              ? "css fallback"
+              : "none",
+        ],
+      ];
 
   return (
     <div
@@ -324,7 +414,7 @@ export default function WateringCan() {
         ));
       })()}
 
-      {!listening && (
+      {!listening && !resuming && (
         // Blocking overlay rather than an inline button: the tilt gesture is
         // the whole interaction, so there is nothing to do on this page until
         // motion is granted. The button is still a real tap, which is what
@@ -419,39 +509,176 @@ export default function WateringCan() {
         </div>
       )}
 
-      <button
-        onClick={logWatering}
-        style={{
-          fontSize: 18,
-          padding: "14px 22px",
-          borderRadius: 10,
-          border: "1px solid #ccc",
-          background: "white",
-          cursor: "pointer",
-        }}
-      >
-        Debug: Trigger water
-      </button>
+      {/* Motion is the hard requirement, so it gets asked first; the name is
+          optional and only comes up once the page is actually usable. */}
+      {listening && !nameAsked && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="name-alert-title"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 2000,
+            display: "grid",
+            placeItems: "center",
+            padding: 24,
+            background: "rgba(20, 22, 20, 0.55)",
+            backdropFilter: "blur(2px)",
+          }}
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const trimmed = nameDraft.trim();
+              if (trimmed) setUserName(trimmed);
+              setName(trimmed || null);
+              setNameAsked(true);
+            }}
+            style={{
+              width: "min(320px, 100%)",
+              padding: 24,
+              borderRadius: 16,
+              background: "white",
+              boxShadow: "0 18px 40px rgba(0, 0, 0, 0.28)",
+              textAlign: "center",
+            }}
+          >
+            <h2
+              id="name-alert-title"
+              style={{ fontSize: 19, fontWeight: 600, margin: "0 0 8px" }}
+            >
+              Who's watering?
+            </h2>
+            <p
+              style={{
+                fontSize: 15,
+                lineHeight: 1.5,
+                color: "#5f5e5a",
+                margin: "0 0 18px",
+              }}
+            >
+              The flower will credit you by name. Leave it blank and you'll just
+              be &ldquo;Someone&rdquo;.
+            </p>
 
-      <svg
-        ref={svgRef}
+            <input
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              placeholder="Your name"
+              autoFocus
+              maxLength={40}
+              autoComplete="name"
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                // 16px keeps iOS Safari from zooming in on focus.
+                fontSize: 16,
+                padding: "12px 14px",
+                marginBottom: 12,
+                borderRadius: 10,
+                border: "1px solid #ccc",
+              }}
+            />
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setNameDraft("");
+                  setNameAsked(true);
+                }}
+                style={{
+                  flex: 1,
+                  fontSize: 16,
+                  padding: "12px 16px",
+                  borderRadius: 10,
+                  border: "1px solid #ccc",
+                  background: "white",
+                  cursor: "pointer",
+                }}
+              >
+                Skip
+              </button>
+              <button
+                type="submit"
+                style={{
+                  flex: 1,
+                  fontSize: 16,
+                  padding: "12px 16px",
+                  borderRadius: 10,
+                  border: "1px solid #1d9e75",
+                  background: "#1d9e75",
+                  color: "white",
+                  cursor: "pointer",
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {debug && (
+        <button
+          onClick={logWatering}
+          style={{
+            fontSize: 18,
+            padding: "14px 22px",
+            borderRadius: 10,
+            border: "1px solid #ccc",
+            background: "white",
+            cursor: "pointer",
+          }}
+        >
+          Debug: Trigger water
+        </button>
+      )}
+
+      {/*
+        The wrapper owns the geometry; the <svg> just fills it. Two reasons it
+        can't be the fixed element itself:
+
+        1. Percentage insets need a non-replaced box. An <svg> is replaced, so
+           with `width: auto` an over-constrained `left`/`right` pair is
+           ignored and it falls back to its intrinsic size.
+        2. Sizes must come from the *containing block*, not viewport units.
+           useLockPortrait's CSS fallback puts a `transform` on the page root
+           when the phone turns, and a transformed ancestor becomes the
+           containing block for `position: fixed` children -- so this box is
+           viewport-sized normally, but root-sized (the counter-rotated
+           portrait frame) once rotated. `lvh` would still resolve against the
+           real viewport in that case, leaving the water short of the bottom.
+
+        Bottom overshoots so the box's own edge is never on screen: iOS clamps
+        fixed elements to the layout viewport, which stops above Safari's
+        translucent toolbar and the home indicator. Paired with
+        viewport-fit=cover (index.html), this bleeds into the safe areas.
+      */}
+      <div
+        ref={waterBoxRef}
         style={{
-          width: "100svw",
-          height: "100svh",
-          position: "absolute",
-          bottom: 0,
+          position: "fixed",
+          top: 0,
           left: 0,
+          right: 0,
+          bottom: `${-BOTTOM_OVERSHOOT * 100}%`,
           pointerEvents: "none",
         }}
       >
-        <path
-          ref={pathRef}
-          y="0"
-          style={{
-            fill: "rgba(56, 85, 165, 0.8)",
-          }}
-        ></path>
-      </svg>
+        <svg
+          ref={svgRef}
+          style={{ width: "100%", height: "100%", display: "block" }}
+        >
+          <path
+            ref={pathRef}
+            style={{
+              fill: "rgba(56, 85, 165, 0.8)",
+            }}
+          ></path>
+        </svg>
+      </div>
 
       {listening && error && (
         <p role="alert" style={{ color: "crimson", lineHeight: 1.5 }}>
@@ -461,43 +688,47 @@ export default function WateringCan() {
 
       {listening && (
         <>
-          <div
-            style={{
-              padding: 28,
-              marginBottom: 16,
-              borderRadius: 12,
-              textAlign: "center",
-              background: pouring ? "#1d9e75" : "#f1efe8",
-              color: pouring ? "white" : "#2c2c2a",
-              transition: "background 200ms",
-            }}
-          >
-            <div style={{ fontSize: 44, fontWeight: 500, lineHeight: 1.1 }}>
-              {twists}
-            </div>
-            <div style={{ fontSize: 14, opacity: 0.85 }}>
-              {twists === 1 ? "pour" : "pours"}
-            </div>
-          </div>
-
-          <div
-            style={{
-              height: 8,
-              borderRadius: 4,
-              background: "#e6e4dc",
-              overflow: "hidden",
-              marginBottom: 10,
-            }}
-          >
+          {debug && (
             <div
               style={{
-                height: "100%",
-                width: `${progress * 100}%`,
-                background: pouring ? "#1d9e75" : "#85b7eb",
-                transition: "width 80ms linear",
+                padding: 28,
+                marginBottom: 16,
+                borderRadius: 12,
+                textAlign: "center",
+                background: pouring ? "#1d9e75" : "#f1efe8",
+                color: pouring ? "white" : "#2c2c2a",
+                transition: "background 200ms",
               }}
-            />
-          </div>
+            >
+              <div style={{ fontSize: 44, fontWeight: 500, lineHeight: 1.1 }}>
+                {twists}
+              </div>
+              <div style={{ fontSize: 14, opacity: 0.85 }}>
+                {twists === 1 ? "pour" : "pours"}
+              </div>
+            </div>
+          )}
+
+          {debug && (
+            <div
+              style={{
+                height: 8,
+                borderRadius: 4,
+                background: "#e6e4dc",
+                overflow: "hidden",
+                marginBottom: 10,
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${progress * 100}%`,
+                  background: pouring ? "#1d9e75" : "#85b7eb",
+                  transition: "width 80ms linear",
+                }}
+              />
+            </div>
+          )}
 
           <p
             style={{
@@ -510,30 +741,32 @@ export default function WateringCan() {
             {PHASE_LABEL[phase]}
           </p>
 
-          <details>
-            <summary
-              style={{ fontSize: 14, color: "#5f5e5a", cursor: "pointer" }}
-            >
-              Sensor readout
-            </summary>
-            <table
-              style={{
-                fontFamily: "ui-monospace, monospace",
-                fontSize: 13,
-                marginTop: 10,
-                borderSpacing: "12px 3px",
-              }}
-            >
-              <tbody>
-                {rows.map(([label, value]) => (
-                  <tr key={label}>
-                    <td style={{ color: "#888780" }}>{label}</td>
-                    <td style={{ textAlign: "right" }}>{value}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </details>
+          {debug && (
+            <details>
+              <summary
+                style={{ fontSize: 14, color: "#5f5e5a", cursor: "pointer" }}
+              >
+                Sensor readout
+              </summary>
+              <table
+                style={{
+                  fontFamily: "ui-monospace, monospace",
+                  fontSize: 13,
+                  marginTop: 10,
+                  borderSpacing: "12px 3px",
+                }}
+              >
+                <tbody>
+                  {rows.map(([label, value]) => (
+                    <tr key={label}>
+                      <td style={{ color: "#888780" }}>{label}</td>
+                      <td style={{ textAlign: "right" }}>{value}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+          )}
         </>
       )}
     </div>

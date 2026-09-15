@@ -82,6 +82,13 @@ export function Flower() {
   // Toggles the pulse scale while bouncing; every state uses the same pulse.
   const [pulse, setPulse] = useState(false);
 
+  // The most recent watering, seeded from SSE on connect so a fresh page load
+  // already knows who watered last.
+  const [lastWatering, setLastWatering] = useState<{
+    name: string | null;
+    wateredAt: number;
+  } | null>(null);
+
   const pageRef = useRef<HTMLDivElement | null>(null);
   const rainRef = useRef<RainHandle | null>(null);
 
@@ -127,7 +134,15 @@ export function Flower() {
         // A completed pour. Mood is derived server-side so this doesn't touch
         // it, but it still earns one pass of rain -- and it's the only signal
         // the debug water button sends, which never emits `pour`.
-        rainRef.current?.start();
+        const data = JSON.parse(e.data);
+        setLastWatering({
+          name: typeof data.name === "string" ? data.name : null,
+          wateredAt: data.wateredAt ?? Date.now(),
+        });
+        // `replay` marks the backlog event the server sends on connect, so a
+        // page refresh shows who watered last without re-running the rain for
+        // a watering that already happened.
+        if (!data.replay) rainRef.current?.start();
       }
     };
 
@@ -164,6 +179,56 @@ export function Flower() {
       }}
     >
       <Rain ref={rainRef} />
+
+
+      <h1
+        style={{
+          position: "fixed",
+          left: 0,
+          right: 0,
+          // Mirrors the credit line at the bottom: clear of the notch on a
+          // notched phone, 24px everywhere else.
+          top: "max(24px, env(safe-area-inset-top))",
+          margin: 0,
+          textAlign: "center",
+          font: "600 22px/1.3 system-ui, sans-serif",
+          letterSpacing: "0.01em",
+          color: "#3d3b36",
+          textShadow: "0 1px 2px rgba(255, 255, 255, 0.8)",
+          pointerEvents: "none",
+          zIndex: 6,
+        }}
+      >
+        RC Flower
+      </h1>
+
+      {lastWatering && (
+        <p
+          style={{
+            position: "fixed",
+            left: 0,
+            right: 0,
+            // Clear of the home indicator on a notched phone; env() is 0
+            // everywhere else, so the 24px floor is what normally applies.
+            bottom: "max(24px, env(safe-area-inset-bottom))",
+            margin: 0,
+            textAlign: "center",
+            font: "500 16px/1.4 system-ui, sans-serif",
+            color: "#3d3b36",
+            textShadow: "0 1px 2px rgba(255, 255, 255, 0.8)",
+            pointerEvents: "none",
+            zIndex: 6,
+          }}
+        >
+          {/* No name given is the common case, not an error -- the watering-can
+              page lets people skip it. */}
+          {lastWatering.name ?? "Someone"} watered at{" "}
+          {new Date(lastWatering.wateredAt).toLocaleTimeString([], {
+            hour: "numeric",
+            minute: "2-digit",
+          })}
+        </p>
+      )}
 
       {debug && (
         <div

@@ -66,7 +66,6 @@ async function handleWater(req: Request, server: Bun.Server<undefined>): Promise
   // step here is optional -- a missing header, missing cookie, or malformed JSON
   // must not 500 the watering request. (TODO: record `name` on the event.)
   const name = cookieUserName(req);
-  void name;
 
   try {
     body = (await req.json()) as Record<string, unknown>;
@@ -79,6 +78,7 @@ async function handleWater(req: Request, server: Bun.Server<undefined>): Promise
     volumeMl: num(body.volumeMl),
     notes: typeof body.notes === "string" ? body.notes : null,
     srcIp: clientIp(req, server),
+    name,
   });
   return Response.json(event, { status: 201 });
 }
