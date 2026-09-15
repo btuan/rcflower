@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Flower",
+  "version": "0.1.0",
+  "identifier": "com.rcflower.display",
+  "build": {
+    "frontendDist": "../../frontend/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Flower",
+        "url": "http://localhost:3000/flower",
+        "fullscreen": true,
+        "decorations": false,
+        "resizable": false
+      }
+    ],
+    "security": {
+      "capabilities": ["main"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb"]
+  }
+}
