@@ -1,4 +1,5 @@
 import { isPersonInFrame, onPersonChange } from "./detections.ts";
+import { getMood, onMoodChange } from "./mood.ts";
 import { onWatering } from "./watering.ts";
 
 const encoder = new TextEncoder();
@@ -20,7 +21,9 @@ export function handleEvents(req: Request): Response {
       };
 
       send("person", { inFrame: isPersonInFrame() });
+      send("mood", { mood: getMood() });
 
+      const offMood = onMoodChange((mood) => send("mood", { mood }));
       const off = onPersonChange((inFrame, timing) =>
         send("person", {
           inFrame,
@@ -47,6 +50,7 @@ export function handleEvents(req: Request): Response {
       cleanup = () => {
         clearInterval(ping);
         off();
+        offMood();
         offWatering();
         try {
           controller.close();
