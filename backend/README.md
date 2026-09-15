@@ -2,7 +2,7 @@
 
 Bun HTTP server. Single entry point for the app.
 
-- `GET /api/health` — `{ ok, dev }`
+- `GET /api/health` — `{ ok, dev, commit, startedAt }`
 - `GET /api/time` — `{ now: <ms epoch> }`; used by `/debug` to estimate the
   browser<->server clock offset (NTP-style probe)
 - `GET /api/detections` — current detection state

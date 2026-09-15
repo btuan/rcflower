@@ -1,4 +1,5 @@
 import { config } from "./config.ts";
+import { commit, startedAt } from "./buildinfo.ts";
 import "./db.ts";
 import {
   getState,
@@ -158,7 +159,7 @@ const server = Bun.serve({
 
     switch (pathname) {
       case "/api/health":
-        return Response.json({ ok: true, dev: config.dev });
+        return Response.json({ ok: true, dev: config.dev, commit, startedAt });
       case "/api/time":
         return Response.json({ now: Date.now() });
       case "/api/detections":
@@ -191,7 +192,7 @@ if (config.dev) {
   console.log(
     [
       "",
-      `[backend] DEV  ->  open ${url}`,
+      `[backend] DEV  ->  open ${url}  (commit ${commit})`,
       `[backend]   /api/*  handled here (Bun)`,
       `[backend]   /*      proxied to Vite, an internal child process on 127.0.0.1:${config.vitePort}`,
       `[backend]           (compiles TSX/Tailwind + hot reload; never open that port directly)`,
@@ -199,5 +200,7 @@ if (config.dev) {
     ].join("\n"),
   );
 } else {
-  console.log(`[backend] PROD  ->  ${url}  (serving ${config.frontendDist}; no Vite process)`);
+  console.log(
+    `[backend] PROD  ->  ${url}  (serving ${config.frontendDist}; no Vite process; commit ${commit})`,
+  );
 }

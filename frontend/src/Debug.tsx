@@ -291,6 +291,9 @@ export function Debug() {
   return (
     <div className="min-h-screen bg-neutral-950 p-6 font-mono text-sm text-neutral-100">
       <h1 className="mb-1 text-lg font-bold">latency debug</h1>
+      <p className="mb-1 text-neutral-500">
+        build: {__COMMIT_SHA__} ({__BUILD_TIME__})
+      </p>
       <p className="mb-4 text-neutral-400">
         SSE: {status} · clock offset:{" "}
         {clock ? `${clock.offsetMs.toFixed(0)} ms (browser ahead if positive)` : "estimating…"} ·

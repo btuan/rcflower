@@ -1,4 +1,5 @@
 import path from "node:path";
+import { execSync } from "node:child_process";
 import { defineConfig, loadEnv } from "vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import babel from "@rolldown/plugin-babel";
@@ -18,7 +19,20 @@ export default defineConfig(({ mode }) => {
     ? Number(process.env.HMR_CLIENT_PORT)
     : undefined;
 
+  const commitSha = ((): string => {
+    if (process.env.COMMIT_SHA) return process.env.COMMIT_SHA;
+    try {
+      return execSync("git rev-parse --short HEAD").toString().trim() || "unknown";
+    } catch {
+      return "unknown";
+    }
+  })();
+
   return {
+    define: {
+      __COMMIT_SHA__: JSON.stringify(commitSha),
+      __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    },
     plugins: [
       react(),
       babel({ presets: [reactCompilerPreset()] }),
