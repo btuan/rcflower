@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
+import { Rain, type RainHandle } from "./Rain";
 import { createFlowerScene } from "./flowerScene";
 import { droopFor, yawTarget } from "./flowerLiveMath";
 import { DEFAULT_PHYSICS, FlowerSpring, PRESET_PHYSICS } from "./flowerSpring";
@@ -29,6 +30,7 @@ const TILT_DIR = new THREE.Vector3(1, 0, 1).normalize();
 
 type MoodEvent = { mood: Mood; health: number; wateredAt: number | null };
 type PersonEvent = { inFrame: boolean; t?: unknown };
+type PourEvent = { pouring: boolean; changedAt?: unknown };
 type TrackEvent = {
   n: number;
   primary: { cx: number; cy: number; w: number; h: number; conf: number } | null;
@@ -47,6 +49,7 @@ export default function FlowerLive() {
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const springRef = useRef<FlowerSpring | null>(null);
   const rootRef = useRef<THREE.Object3D | null>(null);
+  const rainRef = useRef<RainHandle | null>(null);
 
   const [mood, setMood] = useState<Mood>("neutral");
   const [sseStatus, setSseStatus] = useState("connecting");
@@ -115,6 +118,19 @@ export default function FlowerLive() {
       } catch {
         // ignore malformed event
       }
+    });
+
+    es.addEventListener("pour", (e: MessageEvent<string>) => {
+      try {
+        const data = JSON.parse(e.data) as Partial<PourEvent>;
+        rainRef.current?.setRaining(Boolean(data.pouring));
+      } catch {
+        // ignore malformed event
+      }
+    });
+
+    es.addEventListener("watering", () => {
+      rainRef.current?.start();
     });
 
     return () => es.close();
@@ -250,6 +266,7 @@ export default function FlowerLive() {
   return (
     <div className="fixed inset-0 bg-white select-none overflow-hidden">
       <div ref={canvasRef} className="absolute inset-0" />
+      <Rain ref={rainRef} />
       {debug && (
         <div className="absolute top-2 left-2 font-mono text-[11px] leading-tight text-gray-400 bg-white/70 rounded px-2 py-1 pointer-events-none">
           <div>mood: {dbg.mood}</div>
