@@ -8,6 +8,7 @@ import {
   simulatePerson,
 } from "./detections.ts";
 import { getSamples, getStats } from "./latency.ts";
+import { pourState, setPouring } from "./pour.ts";
 import { handleEvents } from "./sse.ts";
 import { recentWatering, recordWatering } from "./watering.ts";
 import { proxyToVite, serveStatic } from "./http.ts";
@@ -25,6 +26,36 @@ const clientIp = (req: Request, server: Bun.Server<undefined>): string | null =>
   return server.requestIP(req)?.address ?? null;
 };
 
+/** Parse a `Cookie:` header into a plain object; a missing header yields `{}`. */
+const parseCookies = (header: string | null): Record<string, string> => {
+  const out: Record<string, string> = {};
+  for (const part of header?.split(";") ?? []) {
+    const eq = part.indexOf("=");
+    if (eq < 0) continue;
+    const key = part.slice(0, eq).trim();
+    const value = part.slice(eq + 1).trim();
+    if (!key) continue;
+    try {
+      out[key] = decodeURIComponent(value); // Decodes percent-encoding like %20 to spaces
+    } catch {
+      out[key] = value; // malformed percent-encoding -- keep it raw
+    }
+  }
+  return out;
+};
+
+/** Display name from the `user` cookie, or null if absent / not valid JSON. */
+const cookieUserName = (req: Request): string | null => {
+  const raw = parseCookies(req.headers.get("cookie"))["user"];
+  if (!raw) return null;
+  try {
+    const user = JSON.parse(raw) as Record<string, unknown>;
+    return typeof user.name === "string" ? user.name : null;
+  } catch {
+    return null;
+  }
+};
+
 /** POST /api/water -- log a watering event and broadcast it over SSE. */
 async function handleWater(req: Request, server: Bun.Server<undefined>): Promise<Response> {
   let body: Record<string, unknown> = {};
@@ -32,21 +63,8 @@ async function handleWater(req: Request, server: Bun.Server<undefined>): Promise
   // Best-effort: pull the waterer's name from a `user` cookie if present. Every
   // step here is optional -- a missing header, missing cookie, or malformed JSON
   // must not 500 the watering request. (TODO: record `name` on the event.)
-  const name = ((): string | null => {
-    const raw = req.headers.get("cookie");
-    if (!raw) return null;
-    const cookies: Record<string, string> = {};
-    for (const part of raw.split(";")) {
-      const [key, ...rest] = part.trim().split("=");
-      if (key) cookies[key] = decodeURIComponent(rest.join("="));
-    }
-    if (!cookies.user) return null;
-    try {
-      return JSON.parse(cookies.user).name ?? null;
-    } catch {
-      return null;
-    }
-  })();
+  const name = cookieUserName(req);
+  void name;
 
   try {
     body = (await req.json()) as Record<string, unknown>;
@@ -61,6 +79,24 @@ async function handleWater(req: Request, server: Bun.Server<undefined>): Promise
     srcIp: clientIp(req, server),
   });
   return Response.json(event, { status: 201 });
+}
+
+/**
+ * POST /api/pour -- the watering can reports whether it is tipped *right now*
+ * (`{ pouring: boolean }`), so the flower can react while the pour is still
+ * happening. The completed pour is logged separately via POST /api/water.
+ */
+async function handlePour(req: Request): Promise<Response> {
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    // handled by the type check below
+  }
+  if (typeof body.pouring !== "boolean") {
+    return Response.json({ error: "expected { pouring: boolean }" }, { status: 400 });
+  }
+  return Response.json(setPouring(body.pouring));
 }
 
 /**
@@ -129,6 +165,8 @@ const server = Bun.serve({
         return req.method === "POST" ? handleDetections(req) : Response.json(getState());
       case "/api/events":
         return handleEvents(req);
+      case "/api/pour":
+        return req.method === "POST" ? handlePour(req) : Response.json(pourState());
       case "/api/water":
         return req.method === "POST"
           ? handleWater(req, server)

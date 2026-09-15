@@ -1,5 +1,6 @@
 import { isPersonInFrame, onPersonChange } from "./detections.ts";
 import { getMood, onMoodChange } from "./mood.ts";
+import { onPourChange, pourState } from "./pour.ts";
 import { onWatering } from "./watering.ts";
 
 const encoder = new TextEncoder();
@@ -22,6 +23,7 @@ export function handleEvents(req: Request): Response {
 
       send("person", { inFrame: isPersonInFrame() });
       send("mood", { mood: getMood() });
+      send("pour", pourState());
 
       const offMood = onMoodChange((mood) => send("mood", { mood }));
       const off = onPersonChange((inFrame, timing) =>
@@ -37,6 +39,9 @@ export function handleEvents(req: Request): Response {
           },
         }),
       );
+      const offPour = onPourChange((pouring, changedAt) =>
+        send("pour", { pouring, changedAt }),
+      );
       const offWatering = onWatering((event) => send("watering", event));
       // Comment line keeps proxies / load balancers from dropping the idle socket.
       const ping = setInterval(() => {
@@ -51,6 +56,7 @@ export function handleEvents(req: Request): Response {
         clearInterval(ping);
         off();
         offMood();
+        offPour();
         offWatering();
         try {
           controller.close();

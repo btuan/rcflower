@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
-import { rollAngle, tiltFromFlat, upInDevice } from "./orientation";
+import { DEG, rollAngle, tiltFromFlat, upInDevice } from "./orientation";
 import { useDeviceOrientation } from "./useDeviceOrientation";
 import { useLockPortrait } from "./useLockPortrait";
 import { useTwistGesture } from "./useTwistGesture";
@@ -38,6 +38,12 @@ const WATERING_CAN_IMAGES = {
 
 const POUR_FRAMES = [WATERING_CAN_IMAGES.pour1, WATERING_CAN_IMAGES.pour2];
 const POUR_FRAME_MS = 140;
+// Seconds of reported pouring it takes to drain a full can. The drain only
+// advances while the can is tipped, so this is pour time, not wall-clock time.
+const DRAIN_DURATION_S = 5;
+// How hard the surface leans with the device. Damped rather than 1:1 -- a
+// surface pinned exactly level reads as rigid, not as liquid settling.
+const SURFACE_TILT_DAMPING = 0.3;
 
 const fmt = (n: number | null | undefined, digits = 1) =>
   n === null || n === undefined ? "—" : n.toFixed(digits);
@@ -48,19 +54,32 @@ const PHASE_LABEL: Record<string, string> = {
   fired: "Pouring — twist back to stop",
 };
 
+/**
+ * Filled water shape: a wavy surface line across the top, straight sides, flat
+ * bottom at `height`.
+ *
+ * `tiltDeg` leans the surface line only -- positive tips it clockwise on
+ * screen -- pivoting about the horizontal centre so the body of water below
+ * stays put. Applied to the geometry rather than as a transform on the <svg>,
+ * which would swing the whole rectangle of water and expose its corners.
+ */
 function wavePath(
   width: number,
   height: number,
   amplitude: number,
   freq: number,
   phase: number,
+  tiltDeg: number,
 ) {
   const points = 40;
+  // Screen y grows downward, so a clockwise lean is a positive slope.
+  const slope = Math.tan(tiltDeg * DEG);
   let d = `M0,${height}`;
   for (let i = 0; i <= points; i++) {
     const x = (width / points) * i;
     const y =
-      0 + Math.sin((x / width) * freq * Math.PI * 2 + phase) * amplitude;
+      slope * (x - width / 2) +
+      Math.sin((x / width) * freq * Math.PI * 2 + phase) * amplitude;
     d += ` L${x},${y}`;
   }
   d += ` L${width},${height} Z`;
@@ -75,6 +94,17 @@ export default function WateringCan() {
   const { status: lockStatus, requestLock } = useLockPortrait(rootRef);
 
   const pathRef = useRef<SVGPathElement | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  // Latest roll/tilt, mirrored from React state so the gsap.ticker tick
+  // (which runs every frame, outside React's render cycle) can read the
+  // current value without needing to be a useGSAP dependency -- that would
+  // tear down and rebuild the ticker callback on every sensor event.
+  const orientationRef = useRef({ roll: 0, tilt: 0 });
+  // How much water is left: 1 = full, 0 = empty. Mutated by the paused tween
+  // below (which only advances while pouring) and read by the ticker each
+  // frame, so draining never goes through React state.
+  const levelRef = useRef({ value: 1 });
+  const drainRef = useRef<gsap.core.Tween | null>(null);
 
   const handleStart = () => {
     // Both the fullscreen request and screen.orientation.lock() require a
@@ -89,26 +119,74 @@ export default function WateringCan() {
 
   useGSAP(
     () => {
-      if (!pouring) return;
+      let prevRoll = orientationRef.current.roll;
+      let splash = 0; // decaying "energy" injected by sudden tilt movement
+
       const tick = () => {
         const t = gsap.ticker.time;
-        pathRef.current?.setAttribute(
-          "d",
-          wavePath(1200, window.innerHeight, 12, 2, t * 2), // amplitude & freq can themselves vary with t
+        const { roll: currentRoll } = orientationRef.current;
+        const angularVelocity = currentRoll - prevRoll;
+        prevRoll = currentRoll;
+
+        // A sudden tilt spikes splash; it decays each frame so the wave
+        // settles back to calm instead of staying permanently rough.
+        splash = Math.max(
+          splash * 0.9,
+          Math.min(Math.abs(angularVelocity) * 4, 40),
         );
+
+        const amplitude = 6 + splash; // 6 = calm baseline
+        const height = window.innerHeight;
+        // Span the actual viewport: with only the surface leaning there are no
+        // corners to hide, and this pivots the lean about the middle of the
+        // screen instead of a point off to the right.
+        const width = window.innerWidth;
+        if (pathRef.current) {
+          pathRef.current.setAttribute(
+            "d",
+            wavePath(
+              width,
+              height,
+              amplitude,
+              2,
+              t * 2,
+              // The pour is a counterclockwise twist, which lifts the surface
+              // on the left, so the lean follows the roll's sign directly.
+              currentRoll * SURFACE_TILT_DAMPING,
+            ),
+          );
+          // Push the whole body of water down as the level drops, so the wavy
+          // top edge doubles as the surface. Recomputed from the live viewport
+          // height each frame, so a resize or URL-bar collapse stays correct.
+          pathRef.current.style.transform = `translateY(${
+            (1 - levelRef.current.value) * height
+          }px)`;
+        }
       };
       gsap.ticker.add(tick);
 
-      gsap.to(pathRef.current, {
-        y: "100svh",
-        duration: 5.0,
-        ease: "power3.inOut",
+      // Starts paused and is played/paused by pour state below -- nothing
+      // drains until the can is actually tipped. Linear so the level falls at
+      // a steady rate however many pours it is spread across.
+      drainRef.current = gsap.to(levelRef.current, {
+        value: 0,
+        duration: DRAIN_DURATION_S,
+        ease: "none",
+        paused: true,
       });
 
       return () => gsap.ticker.remove(tick);
     },
-    { scope: rootRef, dependencies: [pouring] },
+    { scope: rootRef, dependencies: [] },
   );
+
+  // Water falls only across the window the device is reporting "pouring" to
+  // the backend -- same state, same transitions -- and stopping a pour holds
+  // the level where it is rather than resetting it.
+  useEffect(() => {
+    if (pouring) drainRef.current?.play();
+    else drainRef.current?.pause();
+  }, [pouring]);
 
   // The frame counter is reset in onTwist (when a pour starts) rather than
   // here, so this effect only owns the interval.
@@ -123,6 +201,23 @@ export default function WateringCan() {
 
   // Timestamp of the current pour's start, so we can log its duration on stop.
   const pourStart = useRef<number | null>(null);
+
+  /**
+   * Flip the pour state locally and tell the backend in the same breath, so
+   * the water on screen falls over exactly the window the flower is being
+   * told the can is tipped. Fire-and-forget: a dropped request shouldn't
+   * strand the animation.
+   */
+  const reportPouring = (next: boolean) => {
+    setPouring(next);
+    void fetch("/api/pour", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pouring: next }),
+    }).catch(() => {
+      // best-effort: a missed ping shouldn't break the pour
+    });
+  };
 
   const logWatering = () => {
     const start = pourStart.current;
@@ -142,15 +237,15 @@ export default function WateringCan() {
       onTwist: () => {
         setTwists((n) => n + 1);
         setPourFrame(0);
-        setPouring(true);
+        reportPouring(true);
         pourStart.current = Date.now();
       },
       onUntwist: () => {
-        setPouring(false);
+        reportPouring(false);
         logWatering();
       },
       onCancel: () => {
-        setPouring(false);
+        reportPouring(false);
         logWatering();
       },
     }),
@@ -164,6 +259,10 @@ export default function WateringCan() {
   const up = hasTilt ? upInDevice(beta, gamma) : null;
   const roll = hasTilt ? rollAngle(beta, gamma) : null;
   const tilt = hasTilt ? tiltFromFlat(beta, gamma) : null;
+
+  useEffect(() => {
+    orientationRef.current = { roll: roll ?? 0, tilt: tilt ?? 0 };
+  }, [roll, tilt]);
 
   const rows: Array<[string, string]> = [
     ["absolute", String(orientation.absolute)],
@@ -199,8 +298,9 @@ export default function WateringCan() {
       }}
     >
       <h1 style={{ fontSize: 22, fontWeight: 500, marginBottom: 16 }}>
-        Watering can
+        Water the RC flower 🚿
       </h1>
+      <p></p>
 
       {(() => {
         const src = pouring
@@ -225,19 +325,98 @@ export default function WateringCan() {
       })()}
 
       {!listening && (
-        <button
-          onClick={handleStart}
+        // Blocking overlay rather than an inline button: the tilt gesture is
+        // the whole interaction, so there is nothing to do on this page until
+        // motion is granted. The button is still a real tap, which is what
+        // iOS requires before it will honour requestPermission().
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="motion-alert-title"
           style={{
-            fontSize: 18,
-            padding: "14px 22px",
-            borderRadius: 10,
-            border: "1px solid #ccc",
-            background: "white",
-            cursor: "pointer",
+            position: "fixed",
+            inset: 0,
+            zIndex: 2000,
+            display: "grid",
+            placeItems: "center",
+            padding: 24,
+            background: "rgba(20, 22, 20, 0.55)",
+            backdropFilter: "blur(2px)",
           }}
         >
-          Enable motion
-        </button>
+          <div
+            style={{
+              width: "min(320px, 100%)",
+              padding: 24,
+              borderRadius: 16,
+              background: "white",
+              boxShadow: "0 18px 40px rgba(0, 0, 0, 0.28)",
+              textAlign: "center",
+            }}
+          >
+            <h2
+              id="motion-alert-title"
+              style={{ fontSize: 19, fontWeight: 600, margin: "0 0 8px" }}
+            >
+              Motion access
+            </h2>
+            <p
+              style={{
+                fontSize: 15,
+                lineHeight: 1.5,
+                color: "#5f5e5a",
+                margin: "0 0 18px",
+              }}
+            >
+              Pouring works by tilting the phone, so this page needs your
+              device&apos;s orientation sensor.
+            </p>
+
+            {permission === "unsupported" && (
+              <p
+                style={{
+                  fontSize: 14,
+                  lineHeight: 1.5,
+                  color: "#5f5e5a",
+                  margin: "0 0 18px",
+                }}
+              >
+                This browser doesn&apos;t expose device orientation. Check that
+                the page is served over HTTPS.
+              </p>
+            )}
+
+            {error && (
+              <p
+                role="alert"
+                style={{
+                  fontSize: 14,
+                  lineHeight: 1.5,
+                  color: "crimson",
+                  margin: "0 0 18px",
+                }}
+              >
+                {error}
+              </p>
+            )}
+
+            <button
+              onClick={handleStart}
+              autoFocus
+              style={{
+                width: "100%",
+                fontSize: 18,
+                padding: "14px 22px",
+                borderRadius: 10,
+                border: "1px solid #ccc",
+                background: "white",
+                cursor: "pointer",
+              }}
+            >
+              {error || permission === "denied" ? "Try again" : "Enable motion"}
+            </button>
+          </div>
+        </div>
       )}
 
       <button
@@ -255,6 +434,7 @@ export default function WateringCan() {
       </button>
 
       <svg
+        ref={svgRef}
         style={{
           width: "100svw",
           height: "100svh",
@@ -273,16 +453,9 @@ export default function WateringCan() {
         ></path>
       </svg>
 
-      {error && (
+      {listening && error && (
         <p role="alert" style={{ color: "crimson", lineHeight: 1.5 }}>
           {error}
-        </p>
-      )}
-
-      {permission === "unsupported" && (
-        <p style={{ lineHeight: 1.5 }}>
-          This browser doesn&apos;t expose device orientation. Check that the
-          page is served over HTTPS.
         </p>
       )}
 
