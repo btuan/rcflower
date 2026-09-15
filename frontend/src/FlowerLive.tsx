@@ -4,7 +4,14 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 import { Rain, type RainHandle } from "./Rain";
 import { createFlowerScene } from "./flowerScene";
-import { droopFor, yawTarget } from "./flowerLiveMath";
+import {
+  DEFAULT_YAW_SPRING_PARAMS,
+  displayMoodFor,
+  droopFor,
+  stepYawSpring,
+  yawTarget,
+  type YawSpringState,
+} from "./flowerLiveMath";
 import { DEFAULT_PHYSICS, FlowerSpring, PRESET_PHYSICS } from "./flowerSpring";
 
 import glbNeutral from "../../assets/flower/flower_neutral.glb?url";
@@ -21,7 +28,6 @@ const GLB: Record<Mood, string> = {
 };
 
 const MAX_YAW = (35 * Math.PI) / 180;
-const YAW_TAU = 0.35; // seconds, critically-damped-ish smoothing time constant
 const DROOP_TAU = 2; // seconds, smoothing for health-driven droop/tilt
 const TRACK_STALE_MS = 1500;
 
@@ -61,7 +67,7 @@ export default function FlowerLive() {
   const trackCxRef = useRef(0.5);
   const trackNRef = useRef(0);
   const trackAtRef = useRef(0);
-  const yawRef = useRef(0);
+  const yawStateRef = useRef<YawSpringState>({ yaw: 0, vel: 0 });
   const tiltRef = useRef(0);
   const kickQueuedRef = useRef(false);
 
@@ -147,8 +153,9 @@ export default function FlowerLive() {
       pixelRatio: 1,
     });
 
+    const displayMood = displayMoodFor(mood);
     new GLTFLoader().load(
-      GLB[mood],
+      GLB[displayMood],
       (gltf) => {
         if (disposed) return;
         const root = gltf.scene;
@@ -156,7 +163,7 @@ export default function FlowerLive() {
         rootRef.current = root;
         const spring = new FlowerSpring(root, {
           ...DEFAULT_PHYSICS,
-          ...PRESET_PHYSICS[mood],
+          ...PRESET_PHYSICS[displayMood],
         });
         springRef.current = spring;
       },
@@ -184,9 +191,11 @@ export default function FlowerLive() {
           spring.kick(new THREE.Vector3(0, 60, 0));
         }
 
-        // Health -> continuous droop, smoothed over ~2s.
-        const basePreset = { ...DEFAULT_PHYSICS, ...PRESET_PHYSICS[mood] };
-        const droop = droopFor(healthRef.current, basePreset);
+        // Health -> continuous droop, smoothed over ~2s. `dead` renders as
+        // `neutral` with health effectively 0, so droopFor already clamps
+        // to full droop for it.
+        const basePreset = { ...DEFAULT_PHYSICS, ...PRESET_PHYSICS[displayMoodFor(mood)] };
+        const droop = droopFor(mood === "dead" ? 0 : healthRef.current, basePreset);
         const droopAlpha = 1 - Math.exp(-dt / DROOP_TAU);
         const nextGravityInfluence =
           spring.physics.gravityInfluence + (droop.gravityInfluence - spring.physics.gravityInfluence) * droopAlpha;
@@ -216,9 +225,8 @@ export default function FlowerLive() {
         // Track -> yaw. Stale target (no track event recently) snaps back to 0.
         const fresh = trackNRef.current > 0 && performance.now() - trackAtRef.current < TRACK_STALE_MS;
         const targetYaw = fresh ? yawTarget(trackCxRef.current, mirror, MAX_YAW) : 0;
-        const yawAlpha = 1 - Math.exp(-dt / YAW_TAU);
-        yawRef.current += (targetYaw - yawRef.current) * yawAlpha;
-        root.rotation.y = yawRef.current;
+        yawStateRef.current = stepYawSpring(yawStateRef.current, targetYaw, dt, DEFAULT_YAW_SPRING_PARAMS);
+        root.rotation.y = yawStateRef.current.yaw;
       }
 
       renderer.render(scene, camera);
@@ -230,7 +238,7 @@ export default function FlowerLive() {
           inFrame: inFrameRef.current,
           n: trackNRef.current,
           cx: trackCxRef.current,
-          yawDeg: (yawRef.current * 180) / Math.PI,
+          yawDeg: (yawStateRef.current.yaw * 180) / Math.PI,
           sse: sseStatus,
         });
       }
