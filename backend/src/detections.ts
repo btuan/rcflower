@@ -15,7 +15,16 @@ export type DetectionState = {
   inferStartedAt?: number;
   inferredAt?: number;
   sentAt?: number;
+  /** Raw camera frame dims [w, h], pixels -- optional, absent from old clients / curl. */
+  frameSize?: [number, number];
+  /** Frame-pixel rectangle [x1, y1, x2, y2] the model actually saw, after --fit. */
+  roi?: [number, number, number, number];
 };
+
+/** A person detection's box, normalized 0..1 relative to frameSize, plus confidence. */
+export type PrimaryTrack = { cx: number; cy: number; w: number; h: number; conf: number };
+
+export type TrackEvent = { n: number; primary: PrimaryTrack | null; capturedAt: number | null };
 
 /** Timing for one ingested state, ms epoch; null for any stage the client didn't send. */
 export type StateTiming = {
@@ -30,7 +39,9 @@ const EMPTY: DetectionState = { timestamp: 0, detections: [] };
 
 let current: DetectionState = EMPTY;
 let personInFrame = false;
+let lastTrackN = 0;
 const listeners = new Set<(inFrame: boolean, timing: StateTiming) => void>();
+const trackListeners = new Set<(event: TrackEvent) => void>();
 
 const insertStateChangeStmt = db.query<
   unknown,
@@ -54,6 +65,12 @@ function isDetection(d: unknown): d is Detection {
 const optNum = (v: unknown): number | undefined =>
   typeof v === "number" && Number.isFinite(v) ? v : undefined;
 
+const isPairOfNums = (v: unknown): v is [number, number] =>
+  Array.isArray(v) && v.length === 2 && v.every((n) => typeof n === "number" && Number.isFinite(n));
+
+const isQuadOfNums = (v: unknown): v is [number, number, number, number] =>
+  Array.isArray(v) && v.length === 4 && v.every((n) => typeof n === "number" && Number.isFinite(n));
+
 /** Validate an untyped payload as a DetectionState. Returns null if it doesn't match. */
 export function parseDetectionState(data: unknown): DetectionState | null {
   if (!data || typeof data !== "object") return null;
@@ -67,6 +84,40 @@ export function parseDetectionState(data: unknown): DetectionState | null {
     inferStartedAt: optNum(rec.inferStartedAt),
     inferredAt: optNum(rec.inferredAt),
     sentAt: optNum(rec.sentAt),
+    frameSize: isPairOfNums(rec.frameSize) ? rec.frameSize : undefined,
+    roi: isQuadOfNums(rec.roi) ? rec.roi : undefined,
+  };
+}
+
+/**
+ * Pick the `person` detection with the largest box area, normalize its box
+ * to 0..1 relative to `frameSize`. Pure function, exported for testing.
+ * Returns null if there's no frameSize, no box, or no person detection.
+ */
+export function computePrimaryTrack(
+  detections: Detection[],
+  frameSize: [number, number] | undefined,
+): PrimaryTrack | null {
+  if (!frameSize) return null;
+  const [fw, fh] = frameSize;
+  if (!(fw > 0) || !(fh > 0)) return null;
+
+  let best: { box: number[]; conf: number; area: number } | null = null;
+  for (const d of detections) {
+    if (d.label !== "person" || !d.box || d.box.length !== 4) continue;
+    const [x1, y1, x2, y2] = d.box;
+    const area = Math.max(0, x2! - x1!) * Math.max(0, y2! - y1!);
+    if (!best || area > best.area) best = { box: d.box, conf: d.confidence ?? 0, area };
+  }
+  if (!best) return null;
+
+  const [x1, y1, x2, y2] = best.box;
+  return {
+    cx: ((x1! + x2!) / 2) / fw,
+    cy: ((y1! + y2!) / 2) / fh,
+    w: (x2! - x1!) / fw,
+    h: (y2! - y1!) / fh,
+    conf: best.conf,
   };
 }
 
@@ -97,7 +148,25 @@ export function ingestDetectionState(data: unknown): DetectionState | null {
   current = parsed;
   const detected = parsed.detections.some((d) => d.label === "person");
   applyPersonState(detected, timing);
+  emitTrack(parsed, timing);
   return parsed;
+}
+
+/**
+ * Broadcast a `track` event on every ingested frame while persons are
+ * present, and exactly once with `n: 0, primary: null` on the transition to
+ * zero persons (not repeatedly while empty).
+ */
+function emitTrack(parsed: DetectionState, timing: StateTiming): void {
+  const n = parsed.detections.filter((d) => d.label === "person").length;
+  if (n === 0 && lastTrackN === 0) return;
+  lastTrackN = n;
+
+  const primary = n > 0 ? computePrimaryTrack(parsed.detections, parsed.frameSize) : null;
+  if (n > 0 && !primary) return; // no frameSize -- can't normalize, skip per contract
+
+  const event: TrackEvent = { n, primary, capturedAt: timing.capturedAt };
+  for (const fn of trackListeners) fn(event);
 }
 
 /**
@@ -178,4 +247,9 @@ export function onPersonChange(
 ): () => void {
   listeners.add(fn as (inFrame: boolean, timing: StateTiming) => void);
   return () => listeners.delete(fn as (inFrame: boolean, timing: StateTiming) => void);
+}
+
+export function onTrack(fn: (event: TrackEvent) => void): () => void {
+  trackListeners.add(fn);
+  return () => trackListeners.delete(fn);
 }
