@@ -64,6 +64,11 @@ export default function FlowerLive() {
   const rainRef = useRef<RainHandle | null>(null);
 
   const [mood, setMood] = useState<Mood>("neutral");
+  // Who watered last, for the credit line (mirrors Flower.tsx).
+  const [lastWatering, setLastWatering] = useState<{
+    name: string | null;
+    wateredAt: number;
+  } | null>(null);
   const [sseStatus, setSseStatus] = useState("connecting");
 
   // Live values read by the RAF loop, updated from SSE without re-render.
@@ -141,8 +146,15 @@ export default function FlowerLive() {
       }
     });
 
-    es.addEventListener("watering", () => {
-      rainRef.current?.start();
+    es.addEventListener("watering", (e: MessageEvent<string>) => {
+      const data = JSON.parse(e.data) as { name?: unknown; wateredAt?: number; replay?: boolean };
+      setLastWatering({
+        name: typeof data.name === "string" ? data.name : null,
+        wateredAt: data.wateredAt ?? Date.now(),
+      });
+      // `replay` marks the backlog event the server sends on connect: show the
+      // credit, but don't re-run the rain for a watering that already happened.
+      if (!data.replay) rainRef.current?.start();
     });
 
     return () => es.close();
@@ -284,6 +296,29 @@ export default function FlowerLive() {
     <div className="fixed inset-0 bg-white select-none overflow-hidden">
       <div ref={canvasRef} className="absolute inset-0" />
       <Rain ref={rainRef} />
+      {lastWatering && (
+        <p
+          style={{
+            position: "fixed",
+            left: 0,
+            right: 0,
+            bottom: "max(24px, env(safe-area-inset-bottom))",
+            margin: 0,
+            textAlign: "center",
+            font: "500 16px/1.4 system-ui, sans-serif",
+            color: "#3d3b36",
+            textShadow: "0 1px 2px rgba(255, 255, 255, 0.8)",
+            pointerEvents: "none",
+            zIndex: 6,
+          }}
+        >
+          {lastWatering.name ?? "Someone"} watered at{" "}
+          {new Date(lastWatering.wateredAt).toLocaleTimeString([], {
+            hour: "numeric",
+            minute: "2-digit",
+          })}
+        </p>
+      )}
       {debug && (
         <div className="absolute top-2 left-2 font-mono text-[11px] leading-tight text-gray-400 bg-white/70 rounded px-2 py-1 pointer-events-none">
           <div>mood: {dbg.mood}</div>
