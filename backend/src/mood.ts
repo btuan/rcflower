@@ -1,3 +1,4 @@
+import { onPourChange } from "./pour.ts";
 import { onWatering, recentWatering } from "./watering.ts";
 
 export type Mood = "happy" | "neutral" | "sad" | "dead";
@@ -50,6 +51,15 @@ setInterval(evaluate, 1000);
 
 // A watering event resets the clock; recompute immediately so the dead -> happy
 // revival is instant rather than waiting up to a second for the next tick.
+// The can tipping is the moment water is visibly landing on the flower, so
+// revive right then rather than at the end of the pour when the watering
+// event is logged. The completed watering below re-stamps the same clock.
+onPourChange((pouring, changedAt) => {
+  if (!pouring) return;
+  lastWateredAt = changedAt;
+  evaluate();
+});
+
 onWatering((event) => {
   lastWateredAt = event.wateredAt;
   evaluate();
