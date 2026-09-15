@@ -67,7 +67,12 @@ export function Flower() {
   // Read once on mount; toggling the query param requires a reload, which is
   // fine for a debug switch.
   const debug = useRef(isDebugEnabled()).current;
-  const [mood, setMood] = useState<Mood>("neutral");
+  // The mood the live SSE feed last reported.
+  const [liveMood, setLiveMood] = useState<Mood>("neutral");
+  // In debug mode you can pin the display to a mood by hand; null means "track
+  // the live feed". The displayed mood is derived from the two below.
+  const [overrideMood, setOverrideMood] = useState<Mood | null>(null);
+  const mood = overrideMood ?? liveMood;
   const [wateredAt, setWateredAt] = useState<number | null>(null);
   // While happy, the visible frame alternates between "happy" and "neutral"
   // to produce the pulse/bounce; every other mood is a static frame.
@@ -99,15 +104,15 @@ export function Flower() {
       console.log("SSE event:ingested", e);
       if (event === "mood") {
         const data = JSON.parse(e.data);
-        setMood(data.mood);
+        setLiveMood(data.mood);
       } else if (event == "person") {
         const data = JSON.parse(e.data);
         console.log("data", data);
-        setMood(data.inFrame ? "happy" : "neutral");
+        setLiveMood(data.inFrame ? "happy" : "neutral");
       } else if (event === "watering") {
         const data = JSON.parse(e.data);
         console.log("watering", data);
-        setMood("happy");
+        setLiveMood("happy");
         setWateredAt(data.wateredAt ?? Date.now());
       }
     };
@@ -172,25 +177,45 @@ export function Flower() {
           <span
             style={{ width: 1, alignSelf: "stretch", background: "rgba(255,255,255,0.3)" }}
           />
-          <span>mood: {mood}</span>
+          <span>
+            mood: {mood}
+            {overrideMood ? " (override)" : ""}
+          </span>
+          <span style={{ opacity: 0.6 }}>live: {liveMood}</span>
           <span style={{ flex: 1 }} />
           {MOODS.map((m) => (
             <button
               key={m}
               type="button"
-              onClick={() => setMood(m)}
+              onClick={() => setOverrideMood(m)}
               style={{
                 padding: "4px 10px",
                 borderRadius: 4,
                 border: "1px solid #fff",
-                background: m === mood ? "#fff" : "transparent",
-                color: m === mood ? "#000" : "#fff",
+                background: overrideMood === m ? "#fff" : "transparent",
+                color: overrideMood === m ? "#000" : "#fff",
                 cursor: "pointer",
               }}
             >
               {m}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setOverrideMood(null)}
+            disabled={!overrideMood}
+            style={{
+              padding: "4px 10px",
+              borderRadius: 4,
+              border: "1px solid #7CFC7C",
+              background: !overrideMood ? "#7CFC7C" : "transparent",
+              color: !overrideMood ? "#000" : "#7CFC7C",
+              cursor: overrideMood ? "pointer" : "default",
+              opacity: overrideMood ? 1 : 0.8,
+            }}
+          >
+            actual
+          </button>
         </div>
       )}
       {/* All frames stay mounted (stacked in one grid cell) so switching
