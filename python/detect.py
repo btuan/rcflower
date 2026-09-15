@@ -70,6 +70,19 @@ class Fit:
     offset_y: float
 
 
+def load_export_imgsz(metadata_path: Path) -> int | None:
+    """Square input size the model was exported at, from Ultralytics metadata.yaml (None if unknown)."""
+    if metadata_path.suffix.lower() not in {".yaml", ".yml"} or not metadata_path.exists():
+        return None
+    data = yaml.safe_load(metadata_path.read_text(encoding="utf-8")) or {}
+    imgsz = data.get("imgsz")
+    if isinstance(imgsz, list) and imgsz and all(isinstance(v, int) for v in imgsz):
+        return int(imgsz[0])
+    if isinstance(imgsz, int):
+        return imgsz
+    return None
+
+
 def letterbox(frame: np.ndarray, size: int) -> tuple[np.ndarray, float, int, int]:
     """Resize + pad frame to a square (size, size) image, preserving aspect ratio."""
     h, w = frame.shape[:2]
@@ -431,8 +444,11 @@ def main() -> None:
         help="NCNN CPU thread count. Pi 4B bench (320px, 2026-09-15): 1 thread=189ms/frame at 1.0 core, 3 threads=127ms at 2.8 cores -- threads scale poorly, so default to 1 and leave cores for the UI.",
     )
     parser.add_argument(
-        "--input-size", type=int, default=224,
-        help="Model input size in pixels (square). Must be a multiple of 32.",
+        "--input-size", type=int, default=None,
+        help="Model input size in pixels (square). Defaults to the size the NCNN model was "
+        "exported at (metadata.yaml imgsz). The exported graph bakes its anchor grid for that "
+        "size, so any other value produces garbage boxes -- to change it, re-export the model "
+        "with export_model.py --imgsz N and point --model/--labels at it.",
     )
     parser.add_argument(
         "--fit", type=str, default="crop", choices=["crop", "squish", "letterbox"],
@@ -459,8 +475,17 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    exported_size = load_export_imgsz(args.labels)
+    if args.input_size is None:
+        args.input_size = exported_size or 320
     if args.input_size % 32 != 0:
         raise ValueError(f"--input-size must be a multiple of 32, got {args.input_size}")
+    if exported_size is not None and args.input_size != exported_size:
+        raise ValueError(
+            f"--input-size {args.input_size} does not match the model's exported imgsz "
+            f"{exported_size} ({args.labels}). The NCNN export bakes its anchor grid for the "
+            "export size; re-export with export_model.py --imgsz N instead."
+        )
 
     labels = load_labels(args.labels)
 
