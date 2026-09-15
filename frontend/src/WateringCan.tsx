@@ -44,6 +44,16 @@ const DRAIN_DURATION_S = 5;
 // How hard the surface leans with the device. Damped rather than 1:1 -- a
 // surface pinned exactly level reads as rigid, not as liquid settling.
 const SURFACE_TILT_DAMPING = 0.3;
+// How far the water box hangs below the bottom of its frame, as a fraction of
+// that frame's height, so the box's own edge is never visible and the fill
+// continues behind the browser chrome and the home indicator.
+const BOTTOM_OVERSHOOT = 0.2;
+// Where a full can's surface sits, as a fraction of the visible height below
+// the top of the screen. Keeps the water off the very top edge. The overshoot
+// above absorbs the same shift at the bottom, so nothing uncovers.
+const WATER_REST_OFFSET = 0.06;
+// Wave height with the water sitting still. Splash rides on top of this.
+const CALM_AMPLITUDE = 6;
 
 const fmt = (n: number | null | undefined, digits = 1) =>
   n === null || n === undefined ? "—" : n.toFixed(digits);
@@ -102,6 +112,7 @@ export default function WateringCan() {
 
   const pathRef = useRef<SVGPathElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const waterBoxRef = useRef<HTMLDivElement | null>(null);
   // Latest roll/tilt, mirrored from React state so the gsap.ticker tick
   // (which runs every frame, outside React's render cycle) can read the
   // current value without needing to be a useGSAP dependency -- that would
@@ -121,25 +132,33 @@ export default function WateringCan() {
   const boxRef = useRef({
     width: window.innerWidth,
     height: window.innerHeight,
+    // What the user can actually see, which is now shorter than the box. The
+    // drain is measured against this so an empty can puts the surface exactly
+    // at the bottom of the screen rather than somewhere in the overshoot.
+    visibleHeight: window.innerHeight,
   });
 
   useEffect(() => {
+    const el = waterBoxRef.current;
+    if (!el) return;
     const measure = () => {
-      const rect = svgRef.current?.getBoundingClientRect();
+      // clientWidth/Height, not getBoundingClientRect: the rect is the
+      // axis-aligned bounds *after* transforms, so under the portrait-lock
+      // counter-rotation it would report the box's width as its height.
+      const height = el.clientHeight || window.innerHeight;
       boxRef.current = {
-        width: rect?.width || window.innerWidth,
-        height: rect?.height || window.innerHeight,
+        width: el.clientWidth || window.innerWidth,
+        height,
+        // Back out the overshoot to get the part that's actually on screen.
+        visibleHeight: height / (1 + BOTTOM_OVERSHOOT),
       };
     };
     measure();
-    window.addEventListener("resize", measure);
-    window.addEventListener("orientationchange", measure);
-    window.visualViewport?.addEventListener("resize", measure);
-    return () => {
-      window.removeEventListener("resize", measure);
-      window.removeEventListener("orientationchange", measure);
-      window.visualViewport?.removeEventListener("resize", measure);
-    };
+    // Fires for viewport resizes, URL-bar collapse *and* the portrait-lock
+    // fallback restyling the root -- which no window event covers.
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
   }, []);
 
   const handleStart = () => {
@@ -175,30 +194,41 @@ export default function WateringCan() {
           Math.min(Math.abs(angularVelocity) * 4, 40),
         );
 
-        const amplitude = 6 + splash; // 6 = calm baseline
+        const amplitude = CALM_AMPLITUDE + splash;
         // Span the water box exactly: with only the surface leaning there are
         // no corners to hide, and this pivots the lean about the middle of the
         // screen instead of a point off to the right.
-        const { width, height } = boxRef.current;
+        const { width, height, visibleHeight } = boxRef.current;
+        // The pour is a counterclockwise twist, which lifts the surface on the
+        // left, so the lean follows the roll's sign directly.
+        const tiltDeg = currentRoll * SURFACE_TILT_DAMPING;
+
         if (pathRef.current) {
           pathRef.current.setAttribute(
             "d",
-            wavePath(
-              width,
-              height,
-              amplitude,
-              2,
-              t * 2,
-              // The pour is a counterclockwise twist, which lifts the surface
-              // on the left, so the lean follows the roll's sign directly.
-              currentRoll * SURFACE_TILT_DAMPING,
-            ),
+            wavePath(width, height, amplitude, 2, t * 2, tiltDeg),
           );
+
           // Push the whole body of water down as the level drops, so the wavy
-          // top edge doubles as the surface. Recomputed from the live viewport
-          // height each frame, so a resize or URL-bar collapse stays correct.
+          // top edge doubles as the surface.
+          //
+          // The surface pivots about its centre, so tilting lifts one end
+          // above that centre by half the width times the slope. Draining only
+          // as far as `visibleHeight` would park the centre on the bottom edge
+          // and leave that raised end -- a wedge of water -- still on screen.
+          // Travelling the extra rise puts the highest point of the surface,
+          // wave crest included, exactly at the bottom edge when empty.
+          //
+          // The rise uses the calm amplitude rather than the live one: splash
+          // spikes hard while you're rolling the phone, and feeding that into
+          // the travel would jitter the whole body of water mid-drain.
+          const surfaceRise =
+            (Math.abs(Math.tan(tiltDeg * DEG)) * width) / 2 + CALM_AMPLITUDE;
+          const restOffset = WATER_REST_OFFSET * visibleHeight;
+          const drainTravel = visibleHeight - restOffset + surfaceRise;
+
           pathRef.current.style.transform = `translateY(${
-            (1 - levelRef.current.value) * height
+            restOffset + (1 - levelRef.current.value) * drainTravel
           }px)`;
         }
       };
@@ -485,33 +515,49 @@ export default function WateringCan() {
         </button>
       )}
 
-      <svg
-        ref={svgRef}
+      {/*
+        The wrapper owns the geometry; the <svg> just fills it. Two reasons it
+        can't be the fixed element itself:
+
+        1. Percentage insets need a non-replaced box. An <svg> is replaced, so
+           with `width: auto` an over-constrained `left`/`right` pair is
+           ignored and it falls back to its intrinsic size.
+        2. Sizes must come from the *containing block*, not viewport units.
+           useLockPortrait's CSS fallback puts a `transform` on the page root
+           when the phone turns, and a transformed ancestor becomes the
+           containing block for `position: fixed` children -- so this box is
+           viewport-sized normally, but root-sized (the counter-rotated
+           portrait frame) once rotated. `lvh` would still resolve against the
+           real viewport in that case, leaving the water short of the bottom.
+
+        Bottom overshoots so the box's own edge is never on screen: iOS clamps
+        fixed elements to the layout viewport, which stops above Safari's
+        translucent toolbar and the home indicator. Paired with
+        viewport-fit=cover (index.html), this bleeds into the safe areas.
+      */}
+      <div
+        ref={waterBoxRef}
         style={{
-          // Fixed, not absolute: with no positioned ancestor, `absolute`
-          // anchors to the initial containing block, so `bottom: 0` was one
-          // viewport-height down the *document* and slid away as the page
-          // scrolled. Fixed pins it to the screen.
-          //
-          // inset: 0 rather than 100svw/100svh: `svh` is the *smallest*
-          // viewport height (URL bar showing), which left an uncovered strip
-          // at the top once the bar collapsed. With viewport-fit=cover in
-          // index.html this now bleeds under the notch and home indicator.
           position: "fixed",
-          inset: 0,
-          width: "100%",
-          height: "100%",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: `${-BOTTOM_OVERSHOOT * 100}%`,
           pointerEvents: "none",
         }}
       >
-        <path
-          ref={pathRef}
-          y="0"
-          style={{
-            fill: "rgba(56, 85, 165, 0.8)",
-          }}
-        ></path>
-      </svg>
+        <svg
+          ref={svgRef}
+          style={{ width: "100%", height: "100%", display: "block" }}
+        >
+          <path
+            ref={pathRef}
+            style={{
+              fill: "rgba(56, 85, 165, 0.8)",
+            }}
+          ></path>
+        </svg>
+      </div>
 
       {listening && error && (
         <p role="alert" style={{ color: "crimson", lineHeight: 1.5 }}>
