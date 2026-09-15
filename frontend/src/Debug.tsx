@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { formatClock } from "./formatClock";
 
 // --- Types mirroring backend/src/latency.ts + the SSE `person` payload ---
 
@@ -73,6 +74,18 @@ const fmt = (ms: number | null): string => (ms === null ? "—" : `${ms.toFixed(
 /** b - a, or null if either side is missing. */
 const delta = (a: number | null | undefined, b: number | null | undefined): number | null =>
   a == null || b == null ? null : b - a;
+
+/** Wall-clock timestamp for a transition: Pi-side capturedAt if present, else the browser's. */
+function transitionTimestamp(tr: Transition): { ms: number; fellBack: boolean } {
+  if (tr.t?.capturedAt != null) return { ms: tr.t.capturedAt, fellBack: false };
+  return { ms: tr.browserReceivedAt, fellBack: true };
+}
+
+/** Duration since the previous transition, formatted like "12.3 s" (or "—" for < 0/none). */
+function formatSince(ms: number | null): string {
+  if (ms === null || ms < 0) return "—";
+  return `${(ms / 1000).toFixed(1)} s`;
+}
 
 function StatsTable({ stats }: { stats: StageStats[] }) {
   return (
@@ -200,6 +213,7 @@ export function Debug() {
   const [clock, setClock] = useState<{ offsetMs: number; rttMs: number } | null>(null);
   const [latency, setLatency] = useState<LatencyResponse | null>(null);
   const [transitions, setTransitions] = useState<Transition[]>([]);
+  const [now, setNow] = useState(() => Date.now());
   const clockRef = useRef(clock);
   useEffect(() => {
     clockRef.current = clock;
@@ -248,6 +262,12 @@ export function Debug() {
     return () => es.close();
   }, []);
 
+  // Ticks the "how long in this state" summary once a second.
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   // Per-frame stage stats, polled -- these update every frame even without a
   // person transition, so SSE (transition-only) can't carry them.
   useEffect(() => {
@@ -285,10 +305,32 @@ export function Debug() {
       <h2 className="mb-2 mt-8 font-bold">
         transitions ({transitions.length}/{MAX_TRANSITIONS})
       </h2>
+      <p className="mb-2 text-neutral-400">
+        {(() => {
+          const last = transitions[transitions.length - 1];
+          if (!last) return "no transitions yet";
+          const { ms } = transitionTimestamp(last);
+          const sinceMs = now - ms;
+          return (
+            <>
+              last transition at {formatClock(ms)} ·{" "}
+              <span
+                className="rounded px-1.5 py-0.5 font-bold"
+                style={{ background: last.inFrame ? "#1a5" : "#a33" }}
+              >
+                {last.inFrame ? "in frame" : "out"}
+              </span>{" "}
+              for {formatSince(sinceMs)}
+            </>
+          );
+        })()}
+      </p>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[900px] border-collapse text-left text-xs">
+        <table className="w-full min-w-[1100px] border-collapse text-left text-xs">
           <thead>
             <tr className="border-b border-neutral-500">
+              <th className="py-1 pr-3">time</th>
+              <th className="py-1 pr-3">since prev</th>
               <th className="py-1 pr-3">state</th>
               <th className="py-1 pr-3">frame age</th>
               <th className="py-1 pr-3">inference</th>
@@ -309,8 +351,25 @@ export function Debug() {
               const receivedToBroadcast = delta(t?.receivedAt, t?.broadcastAt);
               const broadcastToBrowser = delta(t?.broadcastAt, tr.browserReceivedAtCorrected);
               const total = delta(t?.capturedAt, tr.browserReceivedAtCorrected);
+
+              // reversed list: the "previous" transition (chronologically) is the next element.
+              const prev = transitions[transitions.length - 2 - i];
+              const { ms: tsMs, fellBack } = transitionTimestamp(tr);
+              const sincePrevMs = prev ? tsMs - transitionTimestamp(prev).ms : null;
               return (
                 <tr key={i} className="border-b border-neutral-800">
+                  <td className="py-1 pr-3">
+                    {formatClock(tsMs)}
+                    {fellBack && (
+                      <span
+                        className="ml-1 text-neutral-500"
+                        title="Pi-side capturedAt was unavailable; showing browserReceivedAt instead"
+                      >
+                        (browser)
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-1 pr-3">{formatSince(sincePrevMs)}</td>
                   <td className="py-1 pr-3">
                     <span
                       className="rounded px-1.5 py-0.5 font-bold"
