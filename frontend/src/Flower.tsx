@@ -107,10 +107,12 @@ export function Flower() {
         // Server-computed health state (happy/neutral/sad/dead).
         const data = JSON.parse(e.data);
         setLiveMood(data.mood);
+        console.log("SSE | Mood event received:", data.mood);
       } else if (event === "person") {
         // Presence only toggles the bounce; it never changes the mood.
         const data = JSON.parse(e.data);
         setPersonInFrame(Boolean(data.inFrame));
+        console.log("SSE | Person event received:", data.inFrame);
       }
       // `watering` events still stream, but mood is derived server-side now, so
       // the client no longer reacts to them directly.
@@ -173,7 +175,11 @@ export function Flower() {
             Debug
           </strong>
           <span
-            style={{ width: 1, alignSelf: "stretch", background: "rgba(255,255,255,0.3)" }}
+            style={{
+              width: 1,
+              alignSelf: "stretch",
+              background: "rgba(255,255,255,0.3)",
+            }}
           />
           <span>
             mood: {mood}
