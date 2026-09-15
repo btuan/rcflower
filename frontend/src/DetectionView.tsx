@@ -99,15 +99,23 @@ export function DetectionView({ latestTrack }: { latestTrack: TrackPayload | nul
     if (!ctx) return;
 
     ctx.clearRect(0, 0, canvasW, canvasH);
+    // Mirrored horizontally so the view matches what a person facing the
+    // display sees (camera and display face the same way). Boxes below are
+    // mirrored in coordinate space so their labels stay readable.
     if (imgRef.current) {
+      ctx.save();
+      ctx.translate(canvasW, 0);
+      ctx.scale(-1, 1);
       ctx.drawImage(imgRef.current, 0, 0, canvasW, canvasH);
+      ctx.restore();
     }
+    const mirrorBox = ([x1, y1, x2, y2]: Box): Box => [canvasW - x2, y1, canvasW - x1, y2];
 
     const frameSize = detections?.frameSize ?? null;
     const canvasSize: [number, number] = [canvasW, canvasH];
 
     if (frameSize && detections?.roi) {
-      const [x1, y1, x2, y2] = frameToCanvas(detections.roi, frameSize, canvasSize);
+      const [x1, y1, x2, y2] = mirrorBox(frameToCanvas(detections.roi, frameSize, canvasSize));
       ctx.save();
       ctx.strokeStyle = "rgba(180, 180, 180, 0.7)";
       ctx.lineWidth = 1.5;
@@ -123,7 +131,7 @@ export function DetectionView({ latestTrack }: { latestTrack: TrackPayload | nul
       ctx.lineWidth = 2;
       ctx.font = "12px monospace";
       for (const det of detections.detections) {
-        const [x1, y1, x2, y2] = frameToCanvas(det.box, frameSize, canvasSize);
+        const [x1, y1, x2, y2] = mirrorBox(frameToCanvas(det.box, frameSize, canvasSize));
         ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
         ctx.fillText(`${det.label} ${det.confidence.toFixed(2)}`, x1 + 2, Math.max(10, y1 - 4));
       }
@@ -132,7 +140,8 @@ export function DetectionView({ latestTrack }: { latestTrack: TrackPayload | nul
 
     if (frameSize && latestTrack?.primary) {
       const { cx, cy } = latestTrack.primary;
-      const [px, py] = pointToCanvas([cx * frameSize[0], cy * frameSize[1]], frameSize, canvasSize);
+      const [px0, py] = pointToCanvas([cx * frameSize[0], cy * frameSize[1]], frameSize, canvasSize);
+      const px = canvasW - px0;
       ctx.save();
       ctx.strokeStyle = "#f59e0b";
       ctx.lineWidth = 2;
@@ -165,7 +174,7 @@ export function DetectionView({ latestTrack }: { latestTrack: TrackPayload | nul
       )}
       <p className="mt-2 text-neutral-400">
         frame {frameSize ? `${frameSize[0]}x${frameSize[1]}` : "—"} · roi{" "}
-        {roi ? `[${roi.map((v) => Math.round(v)).join(",")}]` : "—"} · {n} persons · snapshot age{" "}
+        {roi ? `[${roi.map((v) => Math.round(v)).join(",")}]` : "—"} · {n} persons · mirrored · snapshot age{" "}
         {ageS !== null ? `${ageS} s` : "—"}
       </p>
       {latestTrack && (
