@@ -57,6 +57,16 @@ onWatering((event) => {
 
 export const getMood = (): Mood => currentMood;
 
+/** ms epoch of the most recent watering, or null if never watered. */
+export const getWateredAt = (): number | null => lastWateredAt;
+
+/** 1 = just watered, 0 = dead; linear decay over DEAD_MS. Never watered -> 0. */
+export function getHealth(now = Date.now()): number {
+  if (lastWateredAt === null) return 0;
+  const age = now - lastWateredAt;
+  return Math.min(1, Math.max(0, 1 - age / DEAD_MS));
+}
+
 export function onMoodChange(fn: (m: Mood) => void): () => void {
   listeners.add(fn);
   return () => listeners.delete(fn);
