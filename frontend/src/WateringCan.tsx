@@ -199,9 +199,8 @@ export default function WateringCan() {
       }}
     >
       <h1 style={{ fontSize: 22, fontWeight: 500, marginBottom: 16 }}>
-        Watering can (TEST)
+        Watering can
       </h1>
-      <p>With this line Katie is testing whether changes showing up on pi</p>
 
       {(() => {
         const src = pouring
