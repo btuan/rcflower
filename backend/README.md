@@ -26,10 +26,15 @@ Bun HTTP server. Single entry point for the app.
   `{ inFrame: boolean, t: { capturedAt, inferredAt, sentAt, receivedAt, broadcastAt } }`
   (all ms epoch, null for any stage the POST didn't include); `mood` events
   `{ mood, health, wateredAt }` on mood change and every 5s (health decays
-  continuously); `track` events `{ n, primary: { cx, cy, w, h, conf } | null, capturedAt }`
+  continuously); `track` events `{ n, primary: { cx, cy, w, h, conf, id } | null, capturedAt }`
   (primary box normalized 0..1 relative to `frameSize`) on every ingested
   frame while `n > 0`, and once with `n: 0, primary: null` on the transition
-  to zero persons.
+  to zero persons. `n` is the raw per-frame person count; `primary` comes
+  from a small IoU-based tracker (`PrimaryTracker` in `src/detections.ts`)
+  that keeps the same person "primary" across frames instead of re-picking
+  the largest box every frame -- it only switches primary when the current
+  one hasn't been seen for 700ms, and only promotes a new detection once
+  it's matched across 2+ frames (filters single-frame spurious boxes).
 - `GET /api/debug/latency` — `{ samples, stats }` for the frame
   capture→infer→sent→received→broadcast pipeline: `samples` is the last 300
   ingested detection POSTs (ring buffer, in-memory only), `stats` is
