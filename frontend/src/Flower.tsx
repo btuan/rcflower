@@ -33,6 +33,14 @@ const IMG_SIZES = `min(100vw, ${MAX_HEIGHT_VH}vh)`;
 
 type Mood = "happy" | "neutral" | "sad" | "dead";
 
+const MOODS: readonly Mood[] = ["happy", "neutral", "sad", "dead"];
+
+// Debug hook: `?debug=true` shows an overlay menu for inspecting and changing
+// the flower's mood by hand.
+function isDebugEnabled(): boolean {
+  return new URLSearchParams(window.location.search).get("debug") === "true";
+}
+
 const MOOD_IMAGES: Record<
   Exclude<Mood, "dead"> | "dead",
   { srcSet: string; src: string }
@@ -56,6 +64,9 @@ const MOOD_IMAGES: Record<
 };
 
 export function Flower() {
+  // Read once on mount; toggling the query param requires a reload, which is
+  // fine for a debug switch.
+  const debug = useRef(isDebugEnabled()).current;
   const [mood, setMood] = useState<Mood>("neutral");
   const [wateredAt, setWateredAt] = useState<number | null>(null);
   // While happy, the visible frame alternates between "happy" and "neutral"
@@ -131,6 +142,57 @@ export function Flower() {
         justifyContent: "center",
       }}
     >
+      {debug && (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "8px 12px",
+            background: "rgba(0, 0, 0, 0.75)",
+            color: "#fff",
+            font: "13px/1.4 system-ui, sans-serif",
+            zIndex: 1000,
+          }}
+        >
+          <strong
+            style={{
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              fontSize: 12,
+              opacity: 0.7,
+            }}
+          >
+            Debug
+          </strong>
+          <span
+            style={{ width: 1, alignSelf: "stretch", background: "rgba(255,255,255,0.3)" }}
+          />
+          <span>mood: {mood}</span>
+          <span style={{ flex: 1 }} />
+          {MOODS.map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMood(m)}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 4,
+                border: "1px solid #fff",
+                background: m === mood ? "#fff" : "transparent",
+                color: m === mood ? "#000" : "#fff",
+                cursor: "pointer",
+              }}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      )}
       {/* All frames stay mounted (stacked in one grid cell) so switching
           moods never triggers a new image request; only visibility toggles.
           Using visibility rather than display keeps the transform transition
