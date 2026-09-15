@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { DetectionView, type TrackPayload } from "./DetectionView";
 import { formatClock } from "./formatClock";
 
 // --- Types mirroring backend/src/latency.ts + the SSE `person` payload ---
@@ -213,6 +214,7 @@ export function Debug() {
   const [clock, setClock] = useState<{ offsetMs: number; rttMs: number } | null>(null);
   const [latency, setLatency] = useState<LatencyResponse | null>(null);
   const [transitions, setTransitions] = useState<Transition[]>([]);
+  const [latestTrack, setLatestTrack] = useState<TrackPayload | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const clockRef = useRef(clock);
   useEffect(() => {
@@ -259,6 +261,10 @@ export function Debug() {
       );
     });
 
+    es.addEventListener("track", (e: MessageEvent<string>) => {
+      setLatestTrack(JSON.parse(e.data) as TrackPayload);
+    });
+
     return () => es.close();
   }, []);
 
@@ -301,6 +307,8 @@ export function Debug() {
       </p>
 
       <SimulatePerson />
+
+      <DetectionView latestTrack={latestTrack} />
 
       <h2 className="mb-2 mt-6 font-bold">per-frame stage stats (last 300 samples)</h2>
       {latency ? <StatsTable stats={latency.stats} /> : <p>loading…</p>}
