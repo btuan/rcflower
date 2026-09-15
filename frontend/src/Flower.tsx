@@ -67,16 +67,18 @@ export function Flower() {
   // Read once on mount; toggling the query param requires a reload, which is
   // fine for a debug switch.
   const debug = useRef(isDebugEnabled()).current;
-  // The mood the live SSE feed last reported.
+  // The mood the live SSE feed last reported. Mood (which image) is now decided
+  // entirely by the server from watering recency; the client just displays it.
   const [liveMood, setLiveMood] = useState<Mood>("neutral");
   // In debug mode you can pin the display to a mood by hand; null means "track
   // the live feed". The displayed mood is derived from the two below.
   const [overrideMood, setOverrideMood] = useState<Mood | null>(null);
   const mood = overrideMood ?? liveMood;
-  const [wateredAt, setWateredAt] = useState<number | null>(null);
-  // While happy, the visible frame alternates between "happy" and "neutral"
-  // to produce the pulse/bounce; every other mood is a static frame.
-  const [oscFrame, setOscFrame] = useState<"happy" | "neutral">("happy");
+  // Presence drives the *bounce*, not the mood: whenever someone is in frame the
+  // flower pulses in whatever mood it's currently in (dead included).
+  const [personInFrame, setPersonInFrame] = useState(false);
+  // Toggles the pulse scale while bouncing; every state uses the same pulse.
+  const [pulse, setPulse] = useState(false);
 
   // Preload the initial (neutral) frame at a reasonable mid-resolution so
   // first paint doesn't wait on the full responsive image negotiation.
@@ -101,42 +103,38 @@ export function Flower() {
     const es = new EventSource("/api/events");
 
     const push = (event: string) => (e: MessageEvent) => {
-      console.log("SSE event:ingested", e);
       if (event === "mood") {
+        // Server-computed health state (happy/neutral/sad/dead).
         const data = JSON.parse(e.data);
         setLiveMood(data.mood);
-      } else if (event == "person") {
+      } else if (event === "person") {
+        // Presence only toggles the bounce; it never changes the mood.
         const data = JSON.parse(e.data);
-        console.log("data", data);
-        setLiveMood(data.inFrame ? "happy" : "neutral");
-      } else if (event === "watering") {
-        const data = JSON.parse(e.data);
-        console.log("watering", data);
-        setLiveMood("happy");
-        setWateredAt(data.wateredAt ?? Date.now());
+        setPersonInFrame(Boolean(data.inFrame));
       }
+      // `watering` events still stream, but mood is derived server-side now, so
+      // the client no longer reacts to them directly.
     };
 
     // Named events need their own listener; only unnamed ones hit onmessage.
     es.addEventListener("mood", push("mood"));
     es.addEventListener("person", push("person"));
-    es.addEventListener("watering", push("watering"));
     return () => es.close();
   }, []);
 
-  // Oscillate the visible frame while happy. The interval always starts on
-  // "happy" (set as the initial state below) so we don't need to set it
-  // synchronously from the effect body.
+  // Bounce whenever someone is in frame, regardless of mood. Toggling `pulse`
+  // on the oscillation interval drives the scale pulse; when nobody's in frame
+  // we hold still at rest scale.
   useEffect(() => {
-    if (mood !== "happy") return;
-    const id = setInterval(() => {
-      setOscFrame((frame) => (frame === "happy" ? "neutral" : "happy"));
-    }, HAPPY_OSCILLATION_MS);
+    if (!personInFrame) {
+      setPulse(false);
+      return;
+    }
+    const id = setInterval(() => setPulse((p) => !p), HAPPY_OSCILLATION_MS);
     return () => clearInterval(id);
-  }, [mood]);
+  }, [personInFrame]);
 
-  const visibleFrame: Exclude<Mood, "dead"> | "dead" =
-    mood === "happy" ? oscFrame : mood;
+  const visibleFrame: Mood = mood;
 
   return (
     <div
@@ -221,7 +219,7 @@ export function Flower() {
       {/* All frames stay mounted (stacked in one grid cell) so switching
           moods never triggers a new image request; only visibility toggles.
           Using visibility rather than display keeps the transform transition
-          animating on the happy pulse. */}
+          animating on the presence pulse. */}
       <div style={{ display: "grid", justifyItems: "center" }}>
         {(["neutral", "sad", "happy", "dead"] as const).map((frame) => (
           <img
@@ -235,7 +233,7 @@ export function Flower() {
               visibility: frame === visibleFrame ? "visible" : "hidden",
               maxHeight: `${MAX_HEIGHT_VH}vh`,
               maxWidth: "100%",
-              transform: `scale(${frame === "happy" && visibleFrame === "happy" ? HAPPY_SCALE : 1})`,
+              transform: `scale(${frame === visibleFrame && pulse ? HAPPY_SCALE : 1})`,
               transition: `transform ${HAPPY_OSCILLATION_MS}ms ease-in-out`,
             }}
           />

@@ -29,13 +29,24 @@ const clientIp = (req: Request, server: Bun.Server<undefined>): string | null =>
 async function handleWater(req: Request, server: Bun.Server<undefined>): Promise<Response> {
   let body: Record<string, unknown> = {};
 
-  const rawCookieHeader = req.headers.get("cookie");
-  const cookies = rawCookieHeader.split(";").reduce((acc, cookie) => {
-    const [key, value] = cookie.trim().split("=");
-    acc[key] = decodeURIComponent(value); // Decodes percent-encoding like %20 to spaces
-    return acc;
-  }, {});
-  const name = JSON.parse(cookies["user"]).name; // TODO: use this when record watering
+  // Best-effort: pull the waterer's name from a `user` cookie if present. Every
+  // step here is optional -- a missing header, missing cookie, or malformed JSON
+  // must not 500 the watering request. (TODO: record `name` on the event.)
+  const name = ((): string | null => {
+    const raw = req.headers.get("cookie");
+    if (!raw) return null;
+    const cookies: Record<string, string> = {};
+    for (const part of raw.split(";")) {
+      const [key, ...rest] = part.trim().split("=");
+      if (key) cookies[key] = decodeURIComponent(rest.join("="));
+    }
+    if (!cookies.user) return null;
+    try {
+      return JSON.parse(cookies.user).name ?? null;
+    } catch {
+      return null;
+    }
+  })();
 
   try {
     body = (await req.json()) as Record<string, unknown>;
