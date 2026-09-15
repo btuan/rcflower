@@ -4,6 +4,19 @@
  */
 import type { Physics } from "./flowerSpring";
 
+export type Mood = "neutral" | "happy" | "sad" | "dead";
+
+/**
+ * The mood used to pick the GLB / PRESET_PHYSICS. Swapping into the `dead`
+ * model reads as jarring on /live, so `dead` renders as the `neutral` model
+ * at max droop (health is 0 when dead anyway, which already drives the
+ * droop path to full droop). Only happy/neutral/sad swap models. The real
+ * mood is still shown in the `?debug=1` overlay.
+ */
+export function displayMoodFor(mood: Mood): Mood {
+  return mood === "dead" ? "neutral" : mood;
+}
+
 /**
  * Target yaw (radians) for the flower's root rotation, driven by a tracked
  * person's horizontal position in the camera frame (`cx`, 0..1, 0 = left
@@ -18,6 +31,52 @@ export function yawTarget(cx: number, mirror: boolean, maxYaw: number): number {
   const t = (cx - 0.5) * 2 * sign;
   return Math.max(-maxYaw, Math.min(maxYaw, t * maxYaw));
 }
+
+export type YawSpringState = { yaw: number; vel: number };
+
+export type YawSpringParams = {
+  /** Spring stiffness (rad/s^2 per rad of error). */
+  k: number;
+  /** Velocity damping coefficient (1/s). */
+  c: number;
+};
+
+/**
+ * Damped-spring integrator for the flower's yaw follow. Slightly
+ * under-damped (see DEFAULT_YAW_SPRING_PARAMS) so a person moving across
+ * frame produces a smooth turn with a small settle, not a snap.
+ *
+ * A tiny deadband snaps to the target (and zeroes velocity) once the flower
+ * is essentially there and barely moving, to avoid perpetual micro-jitter
+ * from floating point noise.
+ */
+const YAW_DEADBAND_RAD = (0.5 * Math.PI) / 180;
+const YAW_DEADBAND_VEL = 0.01; // rad/s
+
+export function stepYawSpring(
+  state: YawSpringState,
+  target: number,
+  dt: number,
+  params: YawSpringParams,
+): YawSpringState {
+  const error = target - state.yaw;
+  if (Math.abs(error) < YAW_DEADBAND_RAD && Math.abs(state.vel) < YAW_DEADBAND_VEL) {
+    return { yaw: target, vel: 0 };
+  }
+  if (dt <= 0) return { yaw: state.yaw, vel: state.vel };
+  const accel = params.k * error - params.c * state.vel;
+  const vel = state.vel + accel * dt;
+  const yaw = state.yaw + vel * dt;
+  return { yaw, vel };
+}
+
+/** Natural period ~0.9s, damping ratio ~0.7 (slightly under-damped). */
+export const DEFAULT_YAW_SPRING_PARAMS: YawSpringParams = (() => {
+  const period = 0.9; // seconds
+  const zeta = 0.7;
+  const omegaN = (2 * Math.PI) / period;
+  return { k: omegaN * omegaN, c: 2 * zeta * omegaN };
+})();
 
 export type Droop = {
   gravityInfluence: number;

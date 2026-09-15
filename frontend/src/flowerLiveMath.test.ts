@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { droopFor, yawTarget } from "./flowerLiveMath";
+import {
+  DEFAULT_YAW_SPRING_PARAMS,
+  displayMoodFor,
+  droopFor,
+  stepYawSpring,
+  yawTarget,
+  type YawSpringState,
+} from "./flowerLiveMath";
 
 const MAX_YAW = (35 * Math.PI) / 180;
 
@@ -64,5 +71,67 @@ describe("droopFor", () => {
   it("clamps health outside 0..1", () => {
     expect(droopFor(2, preset)).toEqual(droopFor(1, preset));
     expect(droopFor(-1, preset)).toEqual(droopFor(0, preset));
+  });
+});
+
+describe("stepYawSpring", () => {
+  const params = DEFAULT_YAW_SPRING_PARAMS;
+
+  function simulate(target: number, steps: number, dt: number): YawSpringState[] {
+    let state: YawSpringState = { yaw: 0, vel: 0 };
+    const history: YawSpringState[] = [state];
+    for (let i = 0; i < steps; i++) {
+      state = stepYawSpring(state, target, dt, params);
+      history.push(state);
+    }
+    return history;
+  }
+
+  it("converges to the target", () => {
+    const history = simulate(MAX_YAW, 2000, 1 / 60);
+    const last = history[history.length - 1];
+    expect(last.yaw).toBeCloseTo(MAX_YAW, 3);
+    expect(last.vel).toBeCloseTo(0, 3);
+  });
+
+  it("overshoots slightly at damping ratio 0.7", () => {
+    const history = simulate(1, 600, 1 / 60);
+    const maxYaw = Math.max(...history.map((s) => s.yaw));
+    expect(maxYaw).toBeGreaterThan(1);
+    // A reasonable overshoot for zeta=0.7, not a wild oscillation.
+    expect(maxYaw).toBeLessThan(1.1);
+  });
+
+  it("stays put when already at target with zero velocity", () => {
+    const state: YawSpringState = { yaw: 0.3, vel: 0 };
+    const next = stepYawSpring(state, 0.3, 1 / 60, params);
+    expect(next.yaw).toBeCloseTo(0.3, 6);
+    expect(next.vel).toBeCloseTo(0, 6);
+  });
+
+  it("produces no NaN for dt = 0", () => {
+    const state: YawSpringState = { yaw: 0.1, vel: 0.2 };
+    const next = stepYawSpring(state, 0.5, 0, params);
+    expect(Number.isNaN(next.yaw)).toBe(false);
+    expect(Number.isNaN(next.vel)).toBe(false);
+  });
+
+  it("snaps and zeroes velocity inside the deadband", () => {
+    const almostThere = { yaw: 0.29999, vel: 0.0001 };
+    const next = stepYawSpring(almostThere, 0.3, 1 / 60, params);
+    expect(next.yaw).toBe(0.3);
+    expect(next.vel).toBe(0);
+  });
+});
+
+describe("displayMoodFor", () => {
+  it("maps dead to neutral", () => {
+    expect(displayMoodFor("dead")).toBe("neutral");
+  });
+
+  it("passes happy, neutral, and sad through unchanged", () => {
+    expect(displayMoodFor("happy")).toBe("happy");
+    expect(displayMoodFor("neutral")).toBe("neutral");
+    expect(displayMoodFor("sad")).toBe("sad");
   });
 });
