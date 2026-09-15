@@ -328,8 +328,8 @@ def main() -> None:
         help="Use Vulkan for GPU inference"
     )
     parser.add_argument(
-        "--threads", type=int, default=3,
-        help="NCNN CPU thread count used for inference. Vulkan is enabled by default, so this is mostly for CPU fallback.",
+        "--threads", type=int, default=1,
+        help="NCNN CPU thread count. Pi 4B bench (320px, 2026-09-15): 1 thread=189ms/frame at 1.0 core, 3 threads=127ms at 2.8 cores -- threads scale poorly, so default to 1 and leave cores for the UI.",
     )
     parser.add_argument("--state-path", type=Path, default=STATE_PATH, help="Detection state JSON output path")
     parser.add_argument(
