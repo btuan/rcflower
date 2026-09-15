@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { config } from "./config.ts";
 import { commit, startedAt } from "./buildinfo.ts";
 import "./db.ts";
@@ -126,6 +127,29 @@ async function handleDetections(req: Request): Promise<Response> {
   return Response.json({ ok: true, personInFrame: isPersonInFrame() }, { status: 202 });
 }
 
+/** GET /api/detections/latest -- current frame geometry + detections for the debug page. */
+const handleDetectionsLatest = (): Response => {
+  const state = getState();
+  return Response.json({
+    frameSize: state.frameSize ?? null,
+    roi: state.roi ?? null,
+    detections: state.detections,
+    capturedAt: state.capturedAt ?? null,
+  });
+};
+
+/** GET /api/debug/frame.jpg -- latest snapshot written by python/detect.py. */
+async function handleDebugFrame(): Promise<Response> {
+  const filePath = join(config.repoRoot, "state", "frame.jpg");
+  const file = Bun.file(filePath);
+  if (!(await file.exists())) {
+    return new Response("Not found", { status: 404 });
+  }
+  return new Response(file, {
+    headers: { "Cache-Control": "no-store" },
+  });
+}
+
 const simulateStatus = () =>
   Response.json({ personInFrame: isPersonInFrame(), overrideRemainingMs: overrideRemainingMs() });
 
@@ -164,6 +188,10 @@ const server = Bun.serve({
         return Response.json({ now: Date.now() });
       case "/api/detections":
         return req.method === "POST" ? handleDetections(req) : Response.json(getState());
+      case "/api/detections/latest":
+        return handleDetectionsLatest();
+      case "/api/debug/frame.jpg":
+        return handleDebugFrame();
       case "/api/events":
         return handleEvents(req);
       case "/api/pour":
