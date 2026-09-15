@@ -11,6 +11,8 @@ import { ReceiptPrinter } from "./TestGround/ReceiptPrinter.tsx";
 // Lazy: pulls in three.js (~160 KB gz), which no other route needs.
 // eslint-disable-next-line react-refresh/only-export-components
 const FlowerShake = lazy(() => import("./FlowerShake.tsx"));
+// eslint-disable-next-line react-refresh/only-export-components
+const FlowerLive = lazy(() => import("./FlowerLive.tsx"));
 
 console.log(Flower);
 createRoot(document.getElementById("root")!).render(
@@ -25,6 +27,14 @@ createRoot(document.getElementById("root")!).render(
           element={
             <Suspense fallback={null}>
               <FlowerShake />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/live"
+          element={
+            <Suspense fallback={null}>
+              <FlowerLive />
             </Suspense>
           }
         />
