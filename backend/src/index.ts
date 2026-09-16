@@ -1,4 +1,4 @@
-import { join } from "node:path";
+// import { join } from "node:path";
 import { config } from "./config.ts";
 import { commit, startedAt } from "./buildinfo.ts";
 import "./db.ts";
@@ -140,14 +140,15 @@ const handleDetectionsLatest = (): Response => {
 
 /** GET /api/debug/frame.jpg -- latest snapshot written by python/detect.py. */
 async function handleDebugFrame(): Promise<Response> {
-  const filePath = join(config.repoRoot, "state", "frame.jpg");
-  const file = Bun.file(filePath);
-  if (!(await file.exists())) {
-    return new Response("Not found", { status: 404 });
-  }
-  return new Response(file, {
-    headers: { "Cache-Control": "no-store" },
-  });
+  return new Response("Disabled for privacy reasons", { status: 403 });
+  // const filePath = join(config.repoRoot, "state", "frame.jpg");
+  // const file = Bun.file(filePath);
+  // if (!(await file.exists())) {
+  //   return new Response("Not found", { status: 404 });
+  // }
+  // return new Response(file, {
+  //   headers: { "Cache-Control": "no-store" },
+  // });
 }
 
 const simulateStatus = () =>
