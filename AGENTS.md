@@ -29,9 +29,11 @@ python/detect.py --headless  ->  POST /api/detections  ->  backend  ->  GET /api
   also pushes a `track` event (largest-box `person` detection, normalized
   0..1) on every frame with a person, and once on the transition to none.
   `mood` SSE events now carry `{ mood, health, wateredAt }` (health decays
-  continuously, re-sent every 5s). `GET /api/detections/latest` and
-  `GET /api/debug/frame.jpg` (a throttled snapshot from `detect.py`) back
-  the `/debug` page's frame + detection overlay.
+  continuously, re-sent every 5s). `GET /api/detections/latest` backs the
+  `/debug` page's detection-box overlay. The camera snapshot route was removed
+  on purpose: the Pi is public via tailscale funnel, so no camera pixels leave
+  the Pi until the debug routes sit behind auth (`detect.py --snapshot-path`
+  is off by default for the same reason).
 - Detection always stays a separate Python service. The backend never runs CV.
 - Latency across the pipeline (capture -> infer -> sent -> received ->
   broadcast -> browser) is tracked in `backend/src/latency.ts` (in-memory ring

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { frameToCanvas, pointToCanvas, type Box } from "./detectionViewMath";
 
-const SNAPSHOT_POLL_MS = 1000;
 const DETECTIONS_POLL_MS = 250;
 const DISPLAY_WIDTH = 480;
 
@@ -21,44 +20,15 @@ export type TrackPayload = {
 };
 
 /**
- * 1 Hz camera snapshot + detection boxes / ROI overlay for /debug. No video
- * streaming: just a still image refreshed on an interval, redrawn with the
- * latest boxes whenever either the image or the detections change.
+ * Detection boxes / ROI drawn on a blank frame for /debug. The camera image
+ * itself is deliberately NOT shown: the Pi is exposed via tailscale funnel, so
+ * anything the backend serves is public. Bring the snapshot back once the
+ * debug routes sit behind auth.
  */
 export function DetectionView({ latestTrack }: { latestTrack: TrackPayload | null }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const imgRef = useRef<HTMLImageElement | null>(null);
-  const [naturalSize, setNaturalSize] = useState<[number, number] | null>(null);
-  const [lastImageLoadAt, setLastImageLoadAt] = useState<number | null>(null);
-  const [hasImage, setHasImage] = useState(false);
   const [detections, setDetections] = useState<DetectionsResponse | null>(null);
   const [now, setNow] = useState(() => Date.now());
-
-  // Poll the snapshot image at 1 Hz. Keep the previous frame on failure.
-  useEffect(() => {
-    let cancelled = false;
-    const poll = () => {
-      const img = new Image();
-      img.onload = () => {
-        if (cancelled) return;
-        imgRef.current = img;
-        setNaturalSize([img.naturalWidth, img.naturalHeight]);
-        setLastImageLoadAt(Date.now());
-        setHasImage(true);
-      };
-      img.onerror = () => {
-        // best-effort: keep showing the previous frame (e.g. 404 before the
-        // detector has written its first snapshot).
-      };
-      img.src = `/api/debug/frame.jpg?t=${Date.now()}`;
-    };
-    poll();
-    const id = setInterval(poll, SNAPSHOT_POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, []);
 
   // Poll boxes/roi at 250ms -- cheap JSON, independent of the image cadence.
   useEffect(() => {
@@ -85,11 +55,12 @@ export function DetectionView({ latestTrack }: { latestTrack: TrackPayload | nul
     return () => clearInterval(id);
   }, []);
 
-  // Redraw whenever the image, boxes, or frame size change.
+  // Redraw whenever the boxes or frame size change.
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !naturalSize) return;
-    const [nw, nh] = naturalSize;
+    const fs = detections?.frameSize;
+    if (!canvas || !fs) return;
+    const [nw, nh] = fs;
     const scale = DISPLAY_WIDTH / nw;
     const canvasW = DISPLAY_WIDTH;
     const canvasH = Math.round(nh * scale);
@@ -98,17 +69,11 @@ export function DetectionView({ latestTrack }: { latestTrack: TrackPayload | nul
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    ctx.clearRect(0, 0, canvasW, canvasH);
+    ctx.fillStyle = "#1f1f1f";
+    ctx.fillRect(0, 0, canvasW, canvasH);
     // Mirrored horizontally so the view matches what a person facing the
-    // display sees (camera and display face the same way). Boxes below are
-    // mirrored in coordinate space so their labels stay readable.
-    if (imgRef.current) {
-      ctx.save();
-      ctx.translate(canvasW, 0);
-      ctx.scale(-1, 1);
-      ctx.drawImage(imgRef.current, 0, 0, canvasW, canvasH);
-      ctx.restore();
-    }
+    // display sees (camera and display face the same way); boxes are mirrored
+    // in coordinate space so their labels stay readable.
     const mirrorBox = ([x1, y1, x2, y2]: Box): Box => [canvasW - x2, y1, canvasW - x1, y2];
 
     const frameSize = detections?.frameSize ?? null;
@@ -153,29 +118,32 @@ export function DetectionView({ latestTrack }: { latestTrack: TrackPayload | nul
       ctx.stroke();
       ctx.restore();
     }
-  }, [naturalSize, detections, latestTrack, lastImageLoadAt]);
+  }, [detections, latestTrack]);
 
-  const ageS = lastImageLoadAt !== null ? ((now - lastImageLoadAt) / 1000).toFixed(1) : null;
+  const capturedAgeS =
+    detections?.capturedAt != null
+      ? ((now - detections.capturedAt * 1000) / 1000).toFixed(1)
+      : null;
   const frameSize = detections?.frameSize ?? null;
   const roi = detections?.roi ?? null;
   const n = latestTrack?.n ?? detections?.detections.length ?? 0;
 
   return (
     <div className="mb-6 rounded border border-neutral-700 p-3">
-      <div className="mb-2 font-bold">detection snapshot</div>
-      {hasImage ? (
+      <div className="mb-2 font-bold">detections (boxes only -- camera image disabled while public)</div>
+      {frameSize ? (
         <canvas
           ref={canvasRef}
           className="block max-w-full rounded border border-neutral-800"
           style={{ width: DISPLAY_WIDTH }}
         />
       ) : (
-        <p className="text-neutral-500">no snapshot yet</p>
+        <p className="text-neutral-500">waiting for the detector…</p>
       )}
       <p className="mt-2 text-neutral-400">
         frame {frameSize ? `${frameSize[0]}x${frameSize[1]}` : "—"} · roi{" "}
-        {roi ? `[${roi.map((v) => Math.round(v)).join(",")}]` : "—"} · {n} persons · mirrored · snapshot age{" "}
-        {ageS !== null ? `${ageS} s` : "—"}
+        {roi ? `[${roi.map((v) => Math.round(v)).join(",")}]` : "—"} · {n} persons · mirrored · frame age{" "}
+        {capturedAgeS !== null ? `${capturedAgeS} s` : "—"}
       </p>
       {latestTrack && (
         <p className="text-neutral-500">

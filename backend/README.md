@@ -19,9 +19,6 @@ Bun HTTP server. Single entry point for the app.
   `400` if the body doesn't match the shape above.
 - `GET /api/detections/latest` — `{ frameSize, roi, detections, capturedAt }`
   from the current state (nulls if nothing ingested yet). For the debug page.
-- `GET /api/debug/frame.jpg` — latest 320px-wide JPEG snapshot written by
-  `python/detect.py` (`state/frame.jpg`), `no-store`. `404` if it doesn't
-  exist yet.
 - `GET /api/events` — SSE stream; emits `person` events on change:
   `{ inFrame: boolean, t: { capturedAt, inferredAt, sentAt, receivedAt, broadcastAt } }`
   (all ms epoch, null for any stage the POST didn't include); `mood` events
