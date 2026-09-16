@@ -458,8 +458,10 @@ def main() -> None:
     )
     parser.add_argument("--state-path", type=Path, default=STATE_PATH, help="Detection state JSON output path")
     parser.add_argument(
-        "--snapshot-path", type=str, default=str(SNAPSHOT_PATH),
-        help="JPEG snapshot output path for debugging, resized to 320px wide. '' disables.",
+        "--snapshot-path", type=str, default="",
+        help="JPEG snapshot output path for debugging, resized to 320px wide. Off by default: "
+        "the Pi is reachable over tailscale funnel and anything under state/ that the backend "
+        f"serves would be public. e.g. {SNAPSHOT_PATH}",
     )
     parser.add_argument(
         "--snapshot-interval", type=float, default=1.0,
