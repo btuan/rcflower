@@ -13,6 +13,8 @@ import { ReceiptPrinter } from "./TestGround/ReceiptPrinter.tsx";
 const FlowerShake = lazy(() => import("./FlowerShake.tsx"));
 // eslint-disable-next-line react-refresh/only-export-components
 const FlowerLive = lazy(() => import("./FlowerLive.tsx"));
+// eslint-disable-next-line react-refresh/only-export-components
+const FlowerToon = lazy(() => import("./FlowerToon.tsx"));
 
 console.log(Flower);
 createRoot(document.getElementById("root")!).render(
@@ -35,6 +37,14 @@ createRoot(document.getElementById("root")!).render(
           element={
             <Suspense fallback={null}>
               <FlowerLive />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/flower-toon"
+          element={
+            <Suspense fallback={null}>
+              <FlowerToon />
             </Suspense>
           }
         />
