@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 import { Rain, type RainHandle } from "./Rain";
+import { TuningPanel } from "./TuningPanel";
 import { createFlowerScene } from "./flowerScene";
 import {
   DEFAULT_YAW_SPRING_PARAMS,
@@ -55,64 +56,6 @@ type TrackEvent = {
 
 function isMood(v: unknown): v is Mood {
   return v === "neutral" || v === "happy" || v === "sad" || v === "dead";
-}
-
-/** Tuning panel for the `?wc=1` watercolor prototype. */
-function WatercolorPanel({
-  watercolor,
-  onChange,
-}: {
-  watercolor: WatercolorOptions;
-  onChange: (key: keyof WatercolorOptions, value: number) => void;
-}) {
-  return (
-    <div className="absolute top-2 right-2 z-10 w-56 font-mono text-[11px] leading-tight text-gray-600 bg-white/80 rounded px-2 py-1">
-      {(Object.keys(WATERCOLOR_RANGES) as (keyof WatercolorOptions)[]).map((key) => {
-        const range = WATERCOLOR_RANGES[key];
-        // 0|1 options render as checkboxes.
-        if (range.max === 1 && range.step === 1) {
-          return (
-            <label key={key} className="flex items-center gap-1 py-0.5">
-              <input
-                type="checkbox"
-                checked={watercolor[key] === 1}
-                onChange={(e) => onChange(key, e.target.checked ? 1 : 0)}
-              />
-              {key}
-            </label>
-          );
-        }
-        return (
-          <label key={key} className="block py-0.5">
-            <span className="flex justify-between">
-              <span>{key}</span>
-              <span>{watercolor[key]}</span>
-            </span>
-            <input
-              type="range"
-              className="w-full"
-              {...range}
-              value={watercolor[key]}
-              onChange={(e) => onChange(key, Number(e.target.value))}
-            />
-          </label>
-        );
-      })}
-      <button
-        type="button"
-        className="mt-1 underline"
-        onClick={() => {
-          const q = new URLSearchParams({ wc: "1" });
-          for (const [k, v] of Object.entries(watercolor)) {
-            q.set(`wc${k[0].toUpperCase()}${k.slice(1)}`, String(v));
-          }
-          void navigator.clipboard?.writeText(`${window.location.origin}/live?${q}`);
-        }}
-      >
-        copy URL with these values
-      </button>
-    </div>
-  );
 }
 
 export default function FlowerLive() {
@@ -328,7 +271,9 @@ export default function FlowerLive() {
           : 0;
         const targetYaw = fresh ? yawTarget(trackCxRef.current, mirror, MAX_YAW) + sway : 0;
         yawStateRef.current = stepYawSpring(yawStateRef.current, targetYaw, dt, DEFAULT_YAW_SPRING_PARAMS);
-        root.rotation.y = yawStateRef.current.yaw;
+        // Manual yaw offset from the watercolor tuning panel (degrees), on top of the follow yaw.
+        const yawOffset = ((watercolorRef.current?.yaw ?? 0) * Math.PI) / 180;
+        root.rotation.y = yawStateRef.current.yaw + yawOffset;
       }
 
       renderer.render(scene, camera);
@@ -401,7 +346,15 @@ export default function FlowerLive() {
           })}
         </p>
       )}
-      {watercolor && <WatercolorPanel watercolor={watercolor} onChange={onWatercolorChange} />}
+      {watercolor && (
+        <TuningPanel
+          values={watercolor}
+          ranges={WATERCOLOR_RANGES}
+          onChange={onWatercolorChange}
+          urlPrefix="wc"
+          urlBase="/live?wc=1"
+        />
+      )}
       {debug && (
         <div className="absolute top-2 left-2 font-mono text-[11px] leading-tight text-gray-400 bg-white/70 rounded px-2 py-1 pointer-events-none">
           <div>mood: {dbg.mood}</div>

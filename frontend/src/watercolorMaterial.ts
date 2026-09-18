@@ -10,7 +10,11 @@
  */
 import * as THREE from "three";
 
+import { tuningOptionsFromParams, type TuningRange } from "./tuningParams";
+
 export type WatercolorOptions = {
+  /** Degrees. Not a shader param: FlowerLive adds it to the head-follow yaw so the look can be inspected from any side. */
+  yaw: number;
   /** Noise frequency in model units. Higher = smaller blotches. */
   scale: number;
   /** 0..1, how strongly pigment density darkens/saturates the base colour. */
@@ -19,6 +23,18 @@ export type WatercolorOptions = {
   flatten: number;
   /** 0..1, pigment pooling toward silhouette edges. */
   edge: number;
+  /** 0..1, strength of the screen-space wash: mottled pigment fixed to the "paper" rather than the surface. */
+  paper: number;
+  /** Size of the wash blotches, in pixels. */
+  paperScale: number;
+  /** Domain-warp of the wash: 0 = round cloudy blotches, higher = stretched, flowing shapes. */
+  paperWarp: number;
+  /** 0..1, wash contrast: 0 = soft gradual variation, 1 = hard-edged pools. */
+  paperContrast: number;
+  /** 0..1, dark rim where a wash pool meets the next (the "bloom" line of drying watercolor). */
+  paperBloom: number;
+  /** 0..1, fine paper tooth that pigment settles into. */
+  paperTooth: number;
   /** Outline width in model units (0 = off). Drawn as a noise-wobbled inverted hull per part. */
   outline: number;
   /** 0..1, pencil texture on the outline: 0 = solid ink line, 1 = light, broken graphite. */
@@ -38,10 +54,17 @@ export type WatercolorOptions = {
 };
 
 export const DEFAULT_WATERCOLOR: WatercolorOptions = {
+  yaw: 0,
   scale: 1.6,
   strength: 0.7,
   flatten: 0.75,
   edge: 0.5,
+  paper: 0.5,
+  paperScale: 90,
+  paperWarp: 1.5,
+  paperContrast: 0.5,
+  paperBloom: 0.4,
+  paperTooth: 0.3,
   outline: 0.02,
   pencil: 0.5,
   warp: 2.5,
@@ -53,7 +76,8 @@ export const DEFAULT_WATERCOLOR: WatercolorOptions = {
 };
 
 /** Slider ranges for the tuning panel, in display order. */
-export const WATERCOLOR_RANGES: Record<keyof WatercolorOptions, { min: number; max: number; step: number }> = {
+export const WATERCOLOR_RANGES: Record<keyof WatercolorOptions, TuningRange> = {
+  yaw: { min: -180, max: 180, step: 1 },
   solid: { min: 0, max: 1, step: 1 },
   unlit: { min: 0, max: 1, step: 1 },
   scale: { min: 0.2, max: 8, step: 0.05 },
@@ -64,23 +88,24 @@ export const WATERCOLOR_RANGES: Record<keyof WatercolorOptions, { min: number; m
   strength: { min: 0, max: 1.5, step: 0.01 },
   flatten: { min: 0, max: 1, step: 0.01 },
   edge: { min: 0, max: 1.5, step: 0.01 },
+  paper: { min: 0, max: 1, step: 0.01 },
+  paperScale: { min: 10, max: 400, step: 1 },
+  paperWarp: { min: 0, max: 6, step: 0.05 },
+  paperContrast: { min: 0, max: 1, step: 0.01 },
+  paperBloom: { min: 0, max: 1, step: 0.01 },
+  paperTooth: { min: 0, max: 1, step: 0.01 },
   outline: { min: 0, max: 0.08, step: 0.001 },
   pencil: { min: 0, max: 1, step: 0.01 },
 };
 
 /** Read `wcScale`, `wcStrength`, ... overrides from a query string, for quick tuning. */
 export function watercolorOptionsFromParams(params: URLSearchParams): WatercolorOptions {
-  const opts = { ...DEFAULT_WATERCOLOR };
-  for (const key of Object.keys(opts) as (keyof WatercolorOptions)[]) {
-    const raw = params.get(`wc${key[0].toUpperCase()}${key.slice(1)}`);
-    const v = raw === null ? NaN : Number(raw);
-    if (Number.isFinite(v)) opts[key] = v;
-  }
+  const opts = tuningOptionsFromParams(params, "wc", DEFAULT_WATERCOLOR);
   opts.octaves = Math.max(1, Math.min(8, Math.round(opts.octaves)));
   return opts;
 }
 
-const NOISE_GLSL = /* glsl */ `
+export const NOISE_GLSL = /* glsl */ `
   float wcHash(vec3 p) {
     p = fract(p * 0.3183099 + vec3(0.71, 0.113, 0.419));
     p *= 17.0;
@@ -99,7 +124,7 @@ const NOISE_GLSL = /* glsl */ `
   }
 `;
 
-const FBM_GLSL = /* glsl */ `
+export const FBM_GLSL = /* glsl */ `
   float wcFbm(vec3 p) {
     float sum = 0.0;
     float amp = 0.5;
@@ -143,9 +168,117 @@ const FRAGMENT_GLSL = /* glsl */ `
     vec3 wcHue = wcBase / max(wcBase.r, max(wcBase.g, wcBase.b));
     wcCol = mix(wcCol, wcHue, (1.0 - wcDensity) * 0.35 * wcStrength);
 
+    // --- Screen-space layer: lives on the "paper", so it varies even across
+    // solid-colour parts and doesn't follow the surface.
+    vec2 wcPx = gl_FragCoord.xy;
+    vec3 wcQ = vec3(wcPx / wcPaperScale, 3.0);
+    // Cheap single-octave warp: enough to pull the blotches into flowing shapes.
+    wcQ.xy += wcPaperWarp * (vec2(wcNoise(wcQ + 19.0), wcNoise(wcQ + 41.0)) - 0.5);
+    float wcRaw = wcFbm(wcQ);
+    // Contrast narrows the band the fBm is stretched over (it clusters near 0.5).
+    float wcBand = mix(0.35, 0.03, wcPaperContrast);
+    float wcWash = smoothstep(0.5 - wcBand, 0.5 + wcBand, wcRaw);
+    // Bloom: pigment collects in a thin rim just inside the edge of each dense pool.
+    float wcRimLine = 1.0 - smoothstep(0.0, wcBand * 0.6, abs(wcRaw - 0.5 - wcBand * 0.4));
+    float wcPigment = clamp(wcWash + wcPaperBloom * wcRimLine, 0.0, 1.5);
+    wcCol = pow(max(wcCol, vec3(1e-4)), vec3(exp2((wcPigment - 0.5) * 1.4 * wcPaper)));
+    // Paper tooth: fine grain, pigment settles in the dips.
+    float wcTooth = wcNoise(vec3(wcPx * 0.8, 0.0)) * 0.6 + wcNoise(vec3(wcPx * 0.27, 5.0)) * 0.4;
+    wcCol *= 1.0 - wcPaperTooth * 0.3 * (wcTooth - 0.5);
+
     outgoingLight = wcCol;
   }
 `;
+
+/**
+ * Pencil outline: a back-face-only copy of each mesh pushed out along its
+ * normals (inverted hull). The flower parts are closed, smooth-shaded solids,
+ * so this gives a clean per-part line with no extra render pass, and the copy
+ * shares the skeleton so it bends with the flower. `scale` sets the frequency
+ * of the width wobble and pressure noise; `wobble: 0` with `pencil: 0` gives a
+ * clean, constant-width ink line with no noise on the model.
+ */
+export function addPencilOutline(
+  meshes: THREE.Mesh[],
+  options: { outline: number; pencil: number; scale: number; wobble?: number },
+): { setOutline: (width: number) => void; setPencil: (pencil: number) => void; setScale: (scale: number) => void } {
+  const uniforms = {
+    wcOutline: { value: options.outline },
+    wcPencil: { value: options.pencil },
+    wcScale: { value: options.scale },
+    wcWobble: { value: options.wobble ?? 1 },
+  };
+  const material = new THREE.MeshBasicMaterial({ side: THREE.BackSide, color: 0x000000 });
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <common>",
+        `#include <common>\nuniform float wcOutline;\nuniform float wcScale;\nuniform float wcWobble;\nvarying vec3 vWcPos;\n${NOISE_GLSL}`,
+      )
+      .replace(
+        "#include <begin_vertex>",
+        // Wobble the width along the surface so it reads as a brush line.
+        `#include <begin_vertex>
+        vWcPos = position;
+        transformed += normalize(normal) * wcOutline * mix(1.0, 0.35 + 1.3 * wcNoise(position * wcScale * 3.0), wcWobble);`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>\nuniform float wcPencil;\nuniform float wcScale;\nvarying vec3 vWcPos;\n${NOISE_GLSL}`,
+      )
+      .replace(
+        "#include <opaque_fragment>",
+        `{
+          // Pencil: pressure varies slowly along the line (fixed to the
+          // surface); paper tooth is fine and lives in screen space. Where
+          // pressure is light the graphite skips over the tooth.
+          float wcPressure = wcNoise(vWcPos * wcScale * 5.0);
+          float wcTooth = wcNoise(vec3(gl_FragCoord.xy * 0.9, 0.0)) * 0.65
+                        + wcNoise(vec3(gl_FragCoord.xy * 0.33, 7.0)) * 0.35;
+          if (wcTooth < wcPencil * (0.15 + 0.6 * (1.0 - wcPressure))) discard;
+          // Graphite is dark grey rather than ink black where it's thin.
+          outgoingLight = vec3(0.12 * wcPencil * (1.0 - wcPressure) * wcTooth);
+        }
+        #include <opaque_fragment>`,
+      );
+  };
+  material.customProgramCacheKey = () => "watercolor-outline";
+
+  const hulls: THREE.Mesh[] = [];
+  for (const mesh of meshes) {
+    const skinned = mesh as THREE.SkinnedMesh;
+    let hull: THREE.Mesh;
+    if (skinned.isSkinnedMesh) {
+      const skinnedHull = new THREE.SkinnedMesh(mesh.geometry, material);
+      skinnedHull.bind(skinned.skeleton, skinned.bindMatrix);
+      hull = skinnedHull;
+    } else {
+      hull = new THREE.Mesh(mesh.geometry, material);
+    }
+    hull.name = `${mesh.name}.outline`;
+    hull.position.copy(mesh.position);
+    hull.quaternion.copy(mesh.quaternion);
+    hull.scale.copy(mesh.scale);
+    hull.frustumCulled = mesh.frustumCulled;
+    hull.visible = options.outline > 0;
+    mesh.parent?.add(hull);
+    hulls.push(hull);
+  }
+  return {
+    setOutline: (width) => {
+      uniforms.wcOutline.value = width;
+      for (const hull of hulls) hull.visible = width > 0;
+    },
+    setPencil: (pencil) => {
+      uniforms.wcPencil.value = pencil;
+    },
+    setScale: (scale) => {
+      uniforms.wcScale.value = scale;
+    },
+  };
+}
 
 /**
  * Patch every mesh material under `root` with the watercolor shader. Returns
@@ -165,6 +298,12 @@ export function applyWatercolor(
     wcLacunarity: { value: options.lacunarity },
     wcGain: { value: options.gain },
     wcUnlit: { value: options.unlit },
+    wcPaper: { value: options.paper },
+    wcPaperScale: { value: options.paperScale },
+    wcPaperWarp: { value: options.paperWarp },
+    wcPaperContrast: { value: options.paperContrast },
+    wcPaperBloom: { value: options.paperBloom },
+    wcPaperTooth: { value: options.paperTooth },
   };
   let octaves = options.octaves;
   const uniformDecl = Object.keys(uniforms)
@@ -210,82 +349,7 @@ export function applyWatercolor(
     }
   });
 
-  // Outline: a back-face-only copy of each mesh pushed out along its normals
-  // (inverted hull). The parts are closed, smooth-shaded solids, so this gives
-  // a clean per-part line with no extra render pass, and the copy shares the
-  // skeleton so it bends with the flower.
-  const outlineUniforms = {
-    wcOutline: { value: options.outline },
-    wcPencil: { value: options.pencil },
-    wcScale: uniforms.wcScale,
-  };
-  const hullMaterials = new Map<THREE.Material, THREE.MeshBasicMaterial>();
-  const hulls: THREE.Mesh[] = [];
-  for (const mesh of meshes) {
-    const base = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
-    let hullMaterial = hullMaterials.get(base);
-    if (!hullMaterial) {
-      hullMaterial = new THREE.MeshBasicMaterial({ side: THREE.BackSide, color: 0x000000 });
-      hullMaterial.onBeforeCompile = (shader) => {
-        Object.assign(shader.uniforms, outlineUniforms);
-        shader.vertexShader = shader.vertexShader
-          .replace(
-            "#include <common>",
-            `#include <common>\nuniform float wcOutline;\nuniform float wcScale;\nvarying vec3 vWcPos;\n${NOISE_GLSL}`,
-          )
-          .replace(
-            "#include <begin_vertex>",
-            // Wobble the width along the surface so it reads as a brush line.
-            `#include <begin_vertex>
-            vWcPos = position;
-            transformed += normalize(normal) * wcOutline * (0.35 + 1.3 * wcNoise(position * wcScale * 3.0));`,
-          );
-        shader.fragmentShader = shader.fragmentShader
-          .replace(
-            "#include <common>",
-            `#include <common>\nuniform float wcPencil;\nuniform float wcScale;\nvarying vec3 vWcPos;\n${NOISE_GLSL}`,
-          )
-          .replace(
-            "#include <opaque_fragment>",
-            `{
-              // Pencil: pressure varies slowly along the line (fixed to the
-              // surface); paper tooth is fine and lives in screen space. Where
-              // pressure is light the graphite skips over the tooth.
-              float wcPressure = wcNoise(vWcPos * wcScale * 5.0);
-              float wcTooth = wcNoise(vec3(gl_FragCoord.xy * 0.9, 0.0)) * 0.65
-                            + wcNoise(vec3(gl_FragCoord.xy * 0.33, 7.0)) * 0.35;
-              if (wcTooth < wcPencil * (0.15 + 0.6 * (1.0 - wcPressure))) discard;
-              // Graphite is dark grey rather than ink black where it's thin.
-              outgoingLight = vec3(0.12 * wcPencil * (1.0 - wcPressure) * wcTooth);
-            }
-            #include <opaque_fragment>`,
-          );
-      };
-      hullMaterial.customProgramCacheKey = () => "watercolor-outline";
-      hullMaterials.set(base, hullMaterial);
-    }
-    const skinned = mesh as THREE.SkinnedMesh;
-    let hull: THREE.Mesh;
-    if (skinned.isSkinnedMesh) {
-      const skinnedHull = new THREE.SkinnedMesh(mesh.geometry, hullMaterial);
-      skinnedHull.bind(skinned.skeleton, skinned.bindMatrix);
-      hull = skinnedHull;
-    } else {
-      hull = new THREE.Mesh(mesh.geometry, hullMaterial);
-    }
-    hull.name = `${mesh.name}.outline`;
-    hull.position.copy(mesh.position);
-    hull.quaternion.copy(mesh.quaternion);
-    hull.scale.copy(mesh.scale);
-    hull.frustumCulled = mesh.frustumCulled;
-    hull.visible = options.outline > 0;
-    mesh.parent?.add(hull);
-    hulls.push(hull);
-  }
-  const setOutline = (width: number) => {
-    outlineUniforms.wcOutline.value = width;
-    for (const hull of hulls) hull.visible = width > 0;
-  };
+  const outline = addPencilOutline(meshes, options);
 
   // Swap vertex colours for the part's average colour (and back).
   const originals = new Map<THREE.Material, { vertexColors: boolean; color: THREE.Color }>();
@@ -309,12 +373,21 @@ export function applyWatercolor(
   return (next) => {
     if (next.unlit !== undefined) uniforms.wcUnlit.value = next.unlit;
     if (next.solid !== undefined && Boolean(next.solid) !== solid) setSolid((solid = Boolean(next.solid)));
-    if (next.scale !== undefined) uniforms.wcScale.value = next.scale;
+    if (next.scale !== undefined) {
+      uniforms.wcScale.value = next.scale;
+      outline.setScale(next.scale);
+    }
     if (next.strength !== undefined) uniforms.wcStrength.value = next.strength;
     if (next.flatten !== undefined) uniforms.wcFlatten.value = next.flatten;
     if (next.edge !== undefined) uniforms.wcEdge.value = next.edge;
-    if (next.outline !== undefined) setOutline(next.outline);
-    if (next.pencil !== undefined) outlineUniforms.wcPencil.value = next.pencil;
+    if (next.paper !== undefined) uniforms.wcPaper.value = next.paper;
+    if (next.paperScale !== undefined) uniforms.wcPaperScale.value = next.paperScale;
+    if (next.paperWarp !== undefined) uniforms.wcPaperWarp.value = next.paperWarp;
+    if (next.paperContrast !== undefined) uniforms.wcPaperContrast.value = next.paperContrast;
+    if (next.paperBloom !== undefined) uniforms.wcPaperBloom.value = next.paperBloom;
+    if (next.paperTooth !== undefined) uniforms.wcPaperTooth.value = next.paperTooth;
+    if (next.outline !== undefined) outline.setOutline(next.outline);
+    if (next.pencil !== undefined) outline.setPencil(next.pencil);
     if (next.warp !== undefined) uniforms.wcWarpAmt.value = next.warp;
     if (next.lacunarity !== undefined) uniforms.wcLacunarity.value = next.lacunarity;
     if (next.gain !== undefined) uniforms.wcGain.value = next.gain;
