@@ -30,6 +30,8 @@ export type ToonOptions = {
   exposure: number;
   /** 0..1, how dark the flat shadow colour is before any texture. */
   shadow: number;
+  /** 0|1. Off = bare toon shading; keeps the texture sliders' values for flipping back and forth. */
+  showTexture: number;
   /** 0..1, strength of the screen-space texture inside the shadow mask. */
   texture: number;
   /** 0 = fBm wash noise, 1 = pencil hatching; in between blends the two. */
@@ -58,6 +60,7 @@ export const DEFAULT_TOON: ToonOptions = {
   softness: 0.08,
   exposure: 1.5,
   shadow: 0.45,
+  showTexture: 1,
   texture: 0.7,
   pattern: 0,
   texScale: 70,
@@ -79,6 +82,7 @@ export const TOON_RANGES: Record<keyof ToonOptions, TuningRange> = {
   softness: { min: 0, max: 1, step: 0.01 },
   exposure: { min: 0.5, max: 3, step: 0.01 },
   shadow: { min: 0, max: 1, step: 0.01 },
+  showTexture: { min: 0, max: 1, step: 1 },
   texture: { min: 0, max: 1, step: 0.01 },
   pattern: { min: 0, max: 1, step: 0.01 },
   texScale: { min: 10, max: 400, step: 1 },
@@ -162,7 +166,7 @@ export function applyToon(
     tnSoftness: { value: options.softness },
     tnExposure: { value: options.exposure },
     tnShadow: { value: options.shadow },
-    tnTexture: { value: options.texture },
+    tnTexture: { value: options.showTexture === 1 ? options.texture : 0 },
     tnPattern: { value: options.pattern },
     tnTexScale: { value: options.texScale },
     tnTexWarp: { value: options.texWarp },
@@ -264,7 +268,9 @@ export function applyToon(
     if (next.softness !== undefined) uniforms.tnSoftness.value = next.softness;
     if (next.exposure !== undefined) uniforms.tnExposure.value = next.exposure;
     if (next.shadow !== undefined) uniforms.tnShadow.value = next.shadow;
-    if (next.texture !== undefined) uniforms.tnTexture.value = next.texture;
+    if (next.texture !== undefined || next.showTexture !== undefined) {
+      uniforms.tnTexture.value = current.showTexture === 1 ? current.texture : 0;
+    }
     if (next.pattern !== undefined) uniforms.tnPattern.value = next.pattern;
     if (next.texScale !== undefined) uniforms.tnTexScale.value = next.texScale;
     if (next.texWarp !== undefined) uniforms.tnTexWarp.value = next.texWarp;
