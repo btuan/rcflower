@@ -13,6 +13,12 @@ import {
   type YawSpringState,
 } from "./flowerLiveMath";
 import { DEFAULT_PHYSICS, FlowerSpring, PRESET_PHYSICS } from "./flowerSpring";
+import {
+  applyWatercolor,
+  watercolorOptionsFromParams,
+  WATERCOLOR_RANGES,
+  type WatercolorOptions,
+} from "./watercolorMaterial";
 
 import glbNeutral from "../../assets/flower/flower_neutral.glb?url";
 import glbHappy from "../../assets/flower/flower_happy.glb?url";
@@ -51,12 +57,84 @@ function isMood(v: unknown): v is Mood {
   return v === "neutral" || v === "happy" || v === "sad" || v === "dead";
 }
 
+/** Tuning panel for the `?wc=1` watercolor prototype. */
+function WatercolorPanel({
+  watercolor,
+  onChange,
+}: {
+  watercolor: WatercolorOptions;
+  onChange: (key: keyof WatercolorOptions, value: number) => void;
+}) {
+  return (
+    <div className="absolute top-2 right-2 z-10 w-56 font-mono text-[11px] leading-tight text-gray-600 bg-white/80 rounded px-2 py-1">
+      {(Object.keys(WATERCOLOR_RANGES) as (keyof WatercolorOptions)[]).map((key) => {
+        const range = WATERCOLOR_RANGES[key];
+        // 0|1 options render as checkboxes.
+        if (range.max === 1 && range.step === 1) {
+          return (
+            <label key={key} className="flex items-center gap-1 py-0.5">
+              <input
+                type="checkbox"
+                checked={watercolor[key] === 1}
+                onChange={(e) => onChange(key, e.target.checked ? 1 : 0)}
+              />
+              {key}
+            </label>
+          );
+        }
+        return (
+          <label key={key} className="block py-0.5">
+            <span className="flex justify-between">
+              <span>{key}</span>
+              <span>{watercolor[key]}</span>
+            </span>
+            <input
+              type="range"
+              className="w-full"
+              {...range}
+              value={watercolor[key]}
+              onChange={(e) => onChange(key, Number(e.target.value))}
+            />
+          </label>
+        );
+      })}
+      <button
+        type="button"
+        className="mt-1 underline"
+        onClick={() => {
+          const q = new URLSearchParams({ wc: "1" });
+          for (const [k, v] of Object.entries(watercolor)) {
+            q.set(`wc${k[0].toUpperCase()}${k.slice(1)}`, String(v));
+          }
+          void navigator.clipboard?.writeText(`${window.location.origin}/live?${q}`);
+        }}
+      >
+        copy URL with these values
+      </button>
+    </div>
+  );
+}
+
 export default function FlowerLive() {
   const params = new URLSearchParams(window.location.search);
   // Camera and display face the same way, so the raw camera x is reversed for a
   // viewer in front of the flower: mirror by default; `?mirror=0` turns it off.
   const mirror = params.get("mirror") !== "0";
   const debug = params.get("debug") === "1";
+  // Prototype watercolor shader: `?wc=1`, tune with `wcScale`, `wcStrength`, ... (see watercolorMaterial.ts).
+  const [watercolor, setWatercolor] = useState<WatercolorOptions | null>(() =>
+    params.get("wc") === "1" ? watercolorOptionsFromParams(params) : null,
+  );
+  // Latest options for the model-load callback; setter pushes slider changes into the live shader.
+  const watercolorRef = useRef(watercolor);
+  const watercolorSetRef = useRef<((next: Partial<WatercolorOptions>) => void) | null>(null);
+  const onWatercolorChange = (key: keyof WatercolorOptions, value: number) => {
+    if (!watercolorRef.current) return;
+    const next = { ...watercolorRef.current, [key]: value };
+    watercolorRef.current = next;
+    setWatercolor(next);
+    watercolorSetRef.current?.({ [key]: value });
+  };
 
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const springRef = useRef<FlowerSpring | null>(null);
@@ -177,6 +255,9 @@ export default function FlowerLive() {
       (gltf) => {
         if (disposed) return;
         const root = gltf.scene;
+        if (watercolorRef.current) {
+          watercolorSetRef.current = applyWatercolor(root, watercolorRef.current);
+        }
         scene.add(root);
         rootRef.current = root;
         const spring = new FlowerSpring(root, {
@@ -285,6 +366,7 @@ export default function FlowerLive() {
       document.removeEventListener("visibilitychange", onVisibility);
       springRef.current = null;
       rootRef.current = null;
+      watercolorSetRef.current = null;
       dispose();
     };
     // Re-run only when the mood (and thus the loaded model) changes; debug/mirror/sseStatus
@@ -319,6 +401,7 @@ export default function FlowerLive() {
           })}
         </p>
       )}
+      {watercolor && <WatercolorPanel watercolor={watercolor} onChange={onWatercolorChange} />}
       {debug && (
         <div className="absolute top-2 left-2 font-mono text-[11px] leading-tight text-gray-400 bg-white/70 rounded px-2 py-1 pointer-events-none">
           <div>mood: {dbg.mood}</div>
