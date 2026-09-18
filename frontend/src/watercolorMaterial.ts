@@ -2,7 +2,7 @@
  * Prototype watercolor look for the 3D flower: patches the GLB's standard
  * materials (via onBeforeCompile) so the fragment colour is perturbed by
  * domain-warped fractal Brownian motion, approximating the pigment pooling,
- * granulation and splatter of the reference art in assets/flower/Flower*.png.
+ * and edge lines of the reference art in assets/flower/Flower*.png.
  *
  * The flower meshes have no UVs, only vertex colours, so the noise is sampled
  * in 3D at the rest-pose position (the pre-skinning `position` attribute).
@@ -19,10 +19,10 @@ export type WatercolorOptions = {
   flatten: number;
   /** 0..1, pigment pooling toward silhouette edges. */
   edge: number;
-  /** 0..1, screen-space paper grain. */
-  grain: number;
-  /** 0..1, light splatter speckles. */
-  speckle: number;
+  /** Outline width in model units (0 = off). Drawn as a noise-wobbled inverted hull per part. */
+  outline: number;
+  /** 0..1, pencil texture on the outline: 0 = solid ink line, 1 = light, broken graphite. */
+  pencil: number;
   /** Domain-warp amount: 0 = plain cloudy fBm, higher = more wet-in-wet bleeding. */
   warp: number;
   /** fBm frequency multiplier per octave. */
@@ -42,8 +42,8 @@ export const DEFAULT_WATERCOLOR: WatercolorOptions = {
   strength: 0.7,
   flatten: 0.75,
   edge: 0.5,
-  grain: 0.35,
-  speckle: 0.6,
+  outline: 0.02,
+  pencil: 0.5,
   warp: 2.5,
   lacunarity: 2.03,
   gain: 0.5,
@@ -64,8 +64,8 @@ export const WATERCOLOR_RANGES: Record<keyof WatercolorOptions, { min: number; m
   strength: { min: 0, max: 1.5, step: 0.01 },
   flatten: { min: 0, max: 1, step: 0.01 },
   edge: { min: 0, max: 1.5, step: 0.01 },
-  grain: { min: 0, max: 1, step: 0.01 },
-  speckle: { min: 0, max: 1, step: 0.01 },
+  outline: { min: 0, max: 0.08, step: 0.001 },
+  pencil: { min: 0, max: 1, step: 0.01 },
 };
 
 /** Read `wcScale`, `wcStrength`, ... overrides from a query string, for quick tuning. */
@@ -97,6 +97,9 @@ const NOISE_GLSL = /* glsl */ `
           mix(wcHash(i + vec3(0, 1, 1)), wcHash(i + vec3(1, 1, 1)), f.x), f.y),
       f.z);
   }
+`;
+
+const FBM_GLSL = /* glsl */ `
   float wcFbm(vec3 p) {
     float sum = 0.0;
     float amp = 0.5;
@@ -140,15 +143,6 @@ const FRAGMENT_GLSL = /* glsl */ `
     vec3 wcHue = wcBase / max(wcBase.r, max(wcBase.g, wcBase.b));
     wcCol = mix(wcCol, wcHue, (1.0 - wcDensity) * 0.35 * wcStrength);
 
-    // Splatter: sparse bright flecks fixed to the surface.
-    float wcFleck = wcNoise(vWcPos * wcScale * 28.0);
-    wcCol = mix(wcCol, vec3(1.0, 0.97, 0.75), smoothstep(0.86, 0.93, wcFleck) * wcSpeckle);
-
-    // Paper grain lives in screen space: the paper doesn't move with the flower.
-    float wcPaper = wcNoise(vec3(gl_FragCoord.xy * 0.35, 0.0)) * 0.6
-                  + wcNoise(vec3(gl_FragCoord.xy * 0.09, 4.0)) * 0.4;
-    wcCol *= 1.0 - wcGrain * 0.35 * (wcPaper - 0.4) * (0.5 + wcDensity);
-
     outgoingLight = wcCol;
   }
 `;
@@ -167,8 +161,6 @@ export function applyWatercolor(
     wcStrength: { value: options.strength },
     wcFlatten: { value: options.flatten },
     wcEdge: { value: options.edge },
-    wcGrain: { value: options.grain },
-    wcSpeckle: { value: options.speckle },
     wcWarpAmt: { value: options.warp },
     wcLacunarity: { value: options.lacunarity },
     wcGain: { value: options.gain },
@@ -182,9 +174,11 @@ export function applyWatercolor(
   const seen = new Set<THREE.Material>();
   // Running vertex-colour sums per material (r, g, b, count), for the `solid` toggle.
   const colorSums = new Map<THREE.Material, [number, number, number, number]>();
+  const meshes: THREE.Mesh[] = [];
   root.traverse((obj) => {
     const mesh = obj as THREE.Mesh;
     if (!mesh.isMesh) return;
+    meshes.push(mesh);
     for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
       const colors = mesh.geometry.getAttribute("color");
       if (colors) {
@@ -207,7 +201,7 @@ export function applyWatercolor(
         shader.fragmentShader = shader.fragmentShader
           .replace(
             "#include <common>",
-            `#include <common>\n#define WC_OCTAVES ${octaves}\nvarying vec3 vWcPos;\n${uniformDecl}\n${NOISE_GLSL}`,
+            `#include <common>\n#define WC_OCTAVES ${octaves}\nvarying vec3 vWcPos;\n${uniformDecl}\n${NOISE_GLSL}\n${FBM_GLSL}`,
           )
           .replace("#include <opaque_fragment>", `${FRAGMENT_GLSL}\n#include <opaque_fragment>`);
       };
@@ -215,6 +209,83 @@ export function applyWatercolor(
       material.needsUpdate = true;
     }
   });
+
+  // Outline: a back-face-only copy of each mesh pushed out along its normals
+  // (inverted hull). The parts are closed, smooth-shaded solids, so this gives
+  // a clean per-part line with no extra render pass, and the copy shares the
+  // skeleton so it bends with the flower.
+  const outlineUniforms = {
+    wcOutline: { value: options.outline },
+    wcPencil: { value: options.pencil },
+    wcScale: uniforms.wcScale,
+  };
+  const hullMaterials = new Map<THREE.Material, THREE.MeshBasicMaterial>();
+  const hulls: THREE.Mesh[] = [];
+  for (const mesh of meshes) {
+    const base = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+    let hullMaterial = hullMaterials.get(base);
+    if (!hullMaterial) {
+      hullMaterial = new THREE.MeshBasicMaterial({ side: THREE.BackSide, color: 0x000000 });
+      hullMaterial.onBeforeCompile = (shader) => {
+        Object.assign(shader.uniforms, outlineUniforms);
+        shader.vertexShader = shader.vertexShader
+          .replace(
+            "#include <common>",
+            `#include <common>\nuniform float wcOutline;\nuniform float wcScale;\nvarying vec3 vWcPos;\n${NOISE_GLSL}`,
+          )
+          .replace(
+            "#include <begin_vertex>",
+            // Wobble the width along the surface so it reads as a brush line.
+            `#include <begin_vertex>
+            vWcPos = position;
+            transformed += normalize(normal) * wcOutline * (0.35 + 1.3 * wcNoise(position * wcScale * 3.0));`,
+          );
+        shader.fragmentShader = shader.fragmentShader
+          .replace(
+            "#include <common>",
+            `#include <common>\nuniform float wcPencil;\nuniform float wcScale;\nvarying vec3 vWcPos;\n${NOISE_GLSL}`,
+          )
+          .replace(
+            "#include <opaque_fragment>",
+            `{
+              // Pencil: pressure varies slowly along the line (fixed to the
+              // surface); paper tooth is fine and lives in screen space. Where
+              // pressure is light the graphite skips over the tooth.
+              float wcPressure = wcNoise(vWcPos * wcScale * 5.0);
+              float wcTooth = wcNoise(vec3(gl_FragCoord.xy * 0.9, 0.0)) * 0.65
+                            + wcNoise(vec3(gl_FragCoord.xy * 0.33, 7.0)) * 0.35;
+              if (wcTooth < wcPencil * (0.15 + 0.6 * (1.0 - wcPressure))) discard;
+              // Graphite is dark grey rather than ink black where it's thin.
+              outgoingLight = vec3(0.12 * wcPencil * (1.0 - wcPressure) * wcTooth);
+            }
+            #include <opaque_fragment>`,
+          );
+      };
+      hullMaterial.customProgramCacheKey = () => "watercolor-outline";
+      hullMaterials.set(base, hullMaterial);
+    }
+    const skinned = mesh as THREE.SkinnedMesh;
+    let hull: THREE.Mesh;
+    if (skinned.isSkinnedMesh) {
+      const skinnedHull = new THREE.SkinnedMesh(mesh.geometry, hullMaterial);
+      skinnedHull.bind(skinned.skeleton, skinned.bindMatrix);
+      hull = skinnedHull;
+    } else {
+      hull = new THREE.Mesh(mesh.geometry, hullMaterial);
+    }
+    hull.name = `${mesh.name}.outline`;
+    hull.position.copy(mesh.position);
+    hull.quaternion.copy(mesh.quaternion);
+    hull.scale.copy(mesh.scale);
+    hull.frustumCulled = mesh.frustumCulled;
+    hull.visible = options.outline > 0;
+    mesh.parent?.add(hull);
+    hulls.push(hull);
+  }
+  const setOutline = (width: number) => {
+    outlineUniforms.wcOutline.value = width;
+    for (const hull of hulls) hull.visible = width > 0;
+  };
 
   // Swap vertex colours for the part's average colour (and back).
   const originals = new Map<THREE.Material, { vertexColors: boolean; color: THREE.Color }>();
@@ -242,8 +313,8 @@ export function applyWatercolor(
     if (next.strength !== undefined) uniforms.wcStrength.value = next.strength;
     if (next.flatten !== undefined) uniforms.wcFlatten.value = next.flatten;
     if (next.edge !== undefined) uniforms.wcEdge.value = next.edge;
-    if (next.grain !== undefined) uniforms.wcGrain.value = next.grain;
-    if (next.speckle !== undefined) uniforms.wcSpeckle.value = next.speckle;
+    if (next.outline !== undefined) setOutline(next.outline);
+    if (next.pencil !== undefined) outlineUniforms.wcPencil.value = next.pencil;
     if (next.warp !== undefined) uniforms.wcWarpAmt.value = next.warp;
     if (next.lacunarity !== undefined) uniforms.wcLacunarity.value = next.lacunarity;
     if (next.gain !== undefined) uniforms.wcGain.value = next.gain;
