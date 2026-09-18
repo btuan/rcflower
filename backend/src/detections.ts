@@ -376,6 +376,57 @@ export function simulatePerson(seconds: number): void {
   }
 }
 
+// --- Debug sweep: a synthetic person walking across the FOV ----------------
+// Feeds fake frames through ingestDetectionState (same path as the camera), so
+// the tracker, `track` SSE events and the /live yaw all react. Real frames that
+// arrive mid-sweep will interleave, so use it with the camera pointed at nothing.
+
+const SWEEP_FRAME: [number, number] = [640, 480];
+const SWEEP_FPS = 15;
+const SWEEP_BOX_W = 0.2;
+const SWEEP_BOX_H = 0.6;
+let sweepTimer: ReturnType<typeof setInterval> | null = null;
+
+export const isSweeping = (): boolean => sweepTimer !== null;
+
+/** Walk a person box across the frame, cx 0.1 -> 0.9 (or reversed), then send an empty frame. */
+export function simulateSweep(seconds: number, direction: "ltr" | "rtl"): void {
+  if (sweepTimer) clearInterval(sweepTimer);
+  const [fw, fh] = SWEEP_FRAME;
+  const startedAt = Date.now();
+  const send = (people: Detection[]) => {
+    const now = Date.now();
+    ingestDetectionState({
+      timestamp: now / 1000,
+      detections: people,
+      capturedAt: now / 1000,
+      inferStartedAt: now / 1000,
+      inferredAt: now / 1000,
+      sentAt: now / 1000,
+      frameSize: SWEEP_FRAME,
+    });
+  };
+  console.log(`[${new Date().toISOString()}] [detections] debug sweep ${direction} over ${seconds}s`);
+
+  const tick = () => {
+    const t = Math.min(1, (Date.now() - startedAt) / (seconds * 1000));
+    if (t >= 1) {
+      if (sweepTimer) clearInterval(sweepTimer);
+      sweepTimer = null;
+      send([]);
+      return;
+    }
+    const p = direction === "ltr" ? t : 1 - t;
+    const cx = (0.1 + 0.8 * p) * fw;
+    const cy = 0.5 * fh;
+    const w = SWEEP_BOX_W * fw;
+    const h = SWEEP_BOX_H * fh;
+    send([{ label: "person", confidence: 0.9, box: [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2] }]);
+  };
+  tick();
+  sweepTimer = setInterval(tick, 1000 / SWEEP_FPS);
+}
+
 export const getState = (): DetectionState => current;
 export const isPersonInFrame = (): boolean => personInFrame;
 

@@ -209,6 +209,65 @@ function SimulatePerson() {
   );
 }
 
+/** Fires a fake person walking across the FOV so the /live flower yaws without a camera. */
+function SimulateSweep() {
+  const [seconds, setSeconds] = useState(4);
+  const [busy, setBusy] = useState(false);
+
+  const go = async (direction: "ltr" | "rtl") => {
+    setBusy(true);
+    try {
+      await fetch("/api/debug/simulate-sweep", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seconds, direction }),
+      });
+    } catch {
+      // best-effort
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mb-6 flex flex-wrap items-center gap-3 rounded border border-neutral-700 p-3">
+      <span className="font-bold">simulate track</span>
+      <label className="flex items-center gap-1 text-neutral-300">
+        crossing takes
+        <input
+          type="number"
+          min={0.5}
+          max={60}
+          step={0.5}
+          value={seconds}
+          onChange={(e) => setSeconds(Math.max(0.5, Number(e.target.value) || 0.5))}
+          className="w-20 rounded border border-neutral-600 bg-neutral-900 px-2 py-1 text-neutral-100"
+        />
+        s
+      </label>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void go("ltr")}
+        className="rounded bg-emerald-700 px-3 py-1 font-bold hover:bg-emerald-600 disabled:opacity-50"
+      >
+        left → right
+      </button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void go("rtl")}
+        className="rounded bg-emerald-700 px-3 py-1 font-bold hover:bg-emerald-600 disabled:opacity-50"
+      >
+        right → left
+      </button>
+      <span className="text-neutral-500">
+        sends fake person frames through the real ingest path; keep the camera clear or its frames will interleave
+      </span>
+    </div>
+  );
+}
+
 export function Debug() {
   const [status, setStatus] = useState("connecting…");
   const [clock, setClock] = useState<{ offsetMs: number; rttMs: number } | null>(null);
@@ -307,6 +366,7 @@ export function Debug() {
       </p>
 
       <SimulatePerson />
+      <SimulateSweep />
 
       <DetectionView latestTrack={latestTrack} />
 

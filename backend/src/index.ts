@@ -5,8 +5,10 @@ import {
   getState,
   ingestDetectionState,
   isPersonInFrame,
+  isSweeping,
   overrideRemainingMs,
   simulatePerson,
+  simulateSweep,
 } from "./detections.ts";
 import { getSamples, getStats } from "./latency.ts";
 import { pourState, setPouring } from "./pour.ts";
@@ -159,6 +161,22 @@ async function handleSimulatePerson(req: Request): Promise<Response> {
   return simulateStatus();
 }
 
+/** POST /api/debug/simulate-sweep -- `{ seconds, direction: "ltr" | "rtl" }`: fake a person crossing the FOV. */
+async function handleSimulateSweep(req: Request): Promise<Response> {
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    // defaults below
+  }
+  const seconds = num(body.seconds) ?? 4;
+  if (seconds < 0.5 || seconds > 60) {
+    return Response.json({ error: "seconds must be within 0.5..60" }, { status: 400 });
+  }
+  simulateSweep(seconds, body.direction === "rtl" ? "rtl" : "ltr");
+  return Response.json({ sweeping: isSweeping() });
+}
+
 const server = Bun.serve({
   port: config.port,
   hostname: config.host,
@@ -189,6 +207,8 @@ const server = Bun.serve({
         return Response.json({ samples: getSamples(), stats: getStats() });
       case "/api/debug/simulate-person":
         return req.method === "POST" ? handleSimulatePerson(req) : simulateStatus();
+      case "/api/debug/simulate-sweep":
+        return req.method === "POST" ? handleSimulateSweep(req) : Response.json({ sweeping: isSweeping() });
     }
 
     if (pathname.startsWith("/api/")) {
