@@ -63,20 +63,13 @@ curl -i localhost:3000/api/detections \
 
 ## Web viewer
 
-To view the annotated stream in a browser instead of an OpenCV window:
-
-```bash
-python web_stream.py
-```
-
-Then open `http://<host>:8000/` (use `localhost` if running on your own
-machine, or the Pi's IP/hostname if running remotely). Same flags as
-`detect.py`, plus `--host` / `--port` for the web server bind address.
+The backend web server has a debug page where you can view a stream of annotated camera
+images; you can access it at `localhost:3000/debug`. (Note: the video stream has been
+disabled for privacy reasons, but you can still see the bounding-box annotations.)
 
 ## Files
 
 - `detect.py` — capture/inference/NMS/draw loop
-- `web_stream.py` — serves the same annotated feed as an MJPEG stream over HTTP
 - `yolov8n_ncnn_model/` — exported YOLOv8n NCNN model files and metadata labels
 - `export_model.py` — exports a different YOLOv8n NCNN model from Ultralytics weights (dev-only, not needed to run detect.py)
 
