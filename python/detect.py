@@ -477,6 +477,20 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Check environment variables for custom Vulkan driver paths
+    VK_ICD_FILENAMES = os.environ.get("VK_ICD_FILENAMES")
+    LD_LIBRARY_PATH = os.environ.get("LD_LIBRARY_PATH")
+
+    if VK_ICD_FILENAMES:
+        print(f"[{utc_ts()}] [detect] VK_ICD_FILENAMES: {VK_ICD_FILENAMES}")
+    else:
+        print(f"[{utc_ts()}] [detect] VK_ICD_FILENAMES is unset")
+
+    if LD_LIBRARY_PATH:
+        print(f"[{utc_ts()}] [detect] LD_LIBRARY_PATH: {LD_LIBRARY_PATH}")
+    else:
+        print(f"[{utc_ts()}] [detect] LD_LIBRARY_PATH is unset")
+
     exported_size = load_export_imgsz(args.labels)
     if args.input_size is None:
         args.input_size = exported_size or 320

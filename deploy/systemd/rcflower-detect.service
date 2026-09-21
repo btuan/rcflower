@@ -13,6 +13,8 @@ User=pi
 WorkingDirectory=/home/pi/code/rcflower/python
 Environment=PATH=/home/pi/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=PYTHONUNBUFFERED=1
+Environment=VK_ICD_FILENAMES=/home/pi/mesa-install/share/vulkan/icd.d/broadcom_icd.aarch64.json
+Environment=LD_LIBRARY_PATH=/home/pi/mesa-install/lib/aarch64-linux-gnu
 ExecStart=/home/pi/.local/bin/uv run python -u detect.py --headless --camera 0 --classes person --model yolov8n_ncnn_model_224/model.ncnn.param --labels yolov8n_ncnn_model_224/metadata.yaml
 Restart=on-failure
 RestartSec=3
