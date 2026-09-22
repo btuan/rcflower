@@ -1,8 +1,8 @@
 # Object detection prototype
 
 Pulls frames from a USB webcam via OpenCV and runs a YOLOv8n model exported
-for NCNN. The project uses the checked-in model under
-`yolov8n_ncnn_model/` and reads labels from that directory's `metadata.yaml`.
+for NCNN. The project uses checked-in NCNN model directories; the deployed
+service uses `yolov8n_ncnn_model_224/`.
 
 ## Setup
 
@@ -22,19 +22,20 @@ uv run python detect.py
 ## Run
 
 ```bash
-python detect.py
+uv run python detect.py
 ```
 
 Press `q` in the video window to quit. Useful flags:
 
-- `--camera N` — webcam device index (default 0)
-- `--conf 0.4` — confidence threshold
-- `--classes person` — comma-separated COCO labels to detect (default `person`
-  -- that's all we care about right now). Empty string (`--classes ''`)
-  detects all 80 COCO classes.
-- `--width` / `--height` — capture resolution
-- `--backend-url` — where to POST detection state (default `http://127.0.0.1:3000/api/detections`); set to `''` to disable
-- `--headless` — no GUI window; just runs detection and writes `--state-path` (Ctrl+C to quit). Useful when running on the Pi without a display attached.
+- `--camera N` -- webcam device index (default 0)
+- `--conf 0.4` -- confidence threshold
+- `--classes person` -- comma-separated COCO labels to detect (default `person`;
+  use `--classes ''` to detect all 80 COCO classes)
+- `--width` / `--height` -- capture resolution
+- `--backend-url` -- where to POST detection state (default
+  `http://127.0.0.1:3000/api/detections`); set to `''` to disable
+- `--headless` -- no GUI window; runs detection and writes `--state-path`
+  (Ctrl+C to quit). Useful on the Pi without a display.
 
 ## Detection state
 
@@ -44,16 +45,14 @@ Every frame, `detect.py` builds a state payload:
 {"timestamp": 1734000000.12, "detections": [{"label": "person", "confidence": 0.87, "box": [10.0, 20.0, 100.0, 150.0]}]}
 ```
 
-`box` is `[x1, y1, x2, y2]` in source-frame pixel coordinates. It's both:
+`box` is `[x1, y1, x2, y2]` in source-frame pixel coordinates. The payload is:
 
-- **POSTed to the backend** at `--backend-url` (`POST /api/detections`),
-  best-effort -- a failed request is logged and the loop keeps running.
-- **atomically written to a JSON file** at `--state-path` (default
-  `../state/detections.json`, relative to this directory), for local
-  debugging without a backend running.
+- POSTed to `--backend-url` (`POST /api/detections`) on a best-effort basis.
+- Atomically written to `--state-path` (default `../state/detections.json`) for
+  local debugging without a backend.
 
-The two are independent, so you can test the backend side without a camera
-or model at all -- just POST the same shape yourself:
+The two are independent, so the backend side can be tested without a camera or
+model:
 
 ```sh
 curl -i localhost:3000/api/detections \
@@ -63,22 +62,39 @@ curl -i localhost:3000/api/detections \
 
 ## Web viewer
 
-The backend web server has a debug page where you can view a stream of annotated camera
-images; you can access it at `localhost:3000/debug`. (Note: the video stream has been
-disabled for privacy reasons, but you can still see the bounding-box annotations.)
+The backend debug page displays bounding-box annotations at
+`http://localhost:3000/debug`. Camera images are deliberately not streamed for
+privacy.
 
 ## Files
 
-- `detect.py` — capture/inference/NMS/draw loop
-- `yolov8n_ncnn_model/` — exported YOLOv8n NCNN model files and metadata labels
-- `export_model.py` — exports a different YOLOv8n NCNN model from Ultralytics weights (dev-only, not needed to run detect.py)
+- `detect.py` -- capture, inference, NMS, and drawing loop
+- `dev/export_model.py` -- development-only NCNN export helper
+- `dev/test_geometry.py` -- geometry tests for detection preprocessing and postprocessing
+- `yolov8n_ncnn_model*/` -- exported YOLOv8n NCNN model files and metadata labels
+
+## Development tools
+
+The scripts under `dev/` support model development and are not part of the
+runtime detection loop. Run them from the `python/` directory:
+
+```bash
+uv run pytest dev/test_geometry.py
+uv run python dev/export_model.py --imgsz 224
+```
+
+Ultralytics' NCNN exporter derives its output directory from the weights
+filename (for example, `yolov8n.pt` produces `yolov8n_ncnn_model/`) and does
+not provide a separate output-directory argument. `export_model.py` resolves
+relative weights paths from `python/` and temporarily runs from that directory,
+so relative export artifacts are created beneath `python/`.
 
 ## ML inference on the Raspberry Pi 4B
 
-The same `detect.py` and exported model should run unchanged on a Pi 4B.
-The current export targets the NCNN runtime, so installation is based on the
-`ncnn` Python package and the model files in `yolov8n_ncnn_model/`.
+The same `detect.py` and exported model run unchanged on a Pi 4B. The current
+export targets the NCNN runtime, so installation is based on the `ncnn` Python
+package and the selected model directory. The deployed service currently uses
+`yolov8n_ncnn_model_224/`.
 
-If you need to tune throughput, start by lowering capture resolution
-(`--width 320 --height 240`) before trying a smaller model or disabling
-Vulkan compute on the Pi.
+To tune throughput, start by lowering capture resolution (`--width 320 --height
+240`) before trying a smaller model or disabling Vulkan compute on the Pi.
