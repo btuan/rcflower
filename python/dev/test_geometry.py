@@ -3,8 +3,14 @@
 Frame is 640x480 (w x h). Model input size is 224.
 """
 
+import sys
+from pathlib import Path
+
 import numpy as np
 import pytest
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from detect import preprocess, postprocess, roi_from_fit
 

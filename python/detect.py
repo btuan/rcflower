@@ -1,8 +1,9 @@
 """
 Live object detection from a USB webcam using a YOLOv8n NCNN model on Vulkan.
 
-This runs locally on a dev machine with OpenCV + NCNN, using the exported
-`yolov8n_ncnn_model` files under the same Python project directory.
+This runs locally on a dev machine with OpenCV + NCNN, using an exported NCNN
+model directory under the same Python project directory. The deployed service
+selects `yolov8n_ncnn_model_224` explicitly.
 """
 
 import argparse
@@ -448,7 +449,7 @@ def main() -> None:
         help="Model input size in pixels (square). Defaults to the size the NCNN model was "
         "exported at (metadata.yaml imgsz). The exported graph bakes its anchor grid for that "
         "size, so any other value produces garbage boxes -- to change it, re-export the model "
-        "with export_model.py --imgsz N and point --model/--labels at it.",
+        "with dev/export_model.py --imgsz N and point --model/--labels at it.",
     )
     parser.add_argument(
         "--fit", type=str, default="crop", choices=["crop", "squish", "letterbox"],
@@ -486,7 +487,7 @@ def main() -> None:
         raise ValueError(
             f"--input-size {args.input_size} does not match the model's exported imgsz "
             f"{exported_size} ({args.labels}). The NCNN export bakes its anchor grid for the "
-            "export size; re-export with export_model.py --imgsz N instead."
+            "export size; re-export with dev/export_model.py --imgsz N instead."
         )
 
     labels = load_labels(args.labels)

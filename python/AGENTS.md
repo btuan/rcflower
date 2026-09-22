@@ -7,4 +7,4 @@
 - ONLY install top-level dependencies directly. Sub-dependencies should not appear in
   `pyproject.toml`, only in `uv.lock`.
 - Dependencies that are specific to scripts that are run outside the normal production
-  loop, such as `export_model.py`, should be installed as dev dependencies.
+  loop, such as `dev/export_model.py`, should be installed as dev dependencies.
