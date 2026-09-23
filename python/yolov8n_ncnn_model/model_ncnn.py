@@ -2,6 +2,7 @@ import numpy as np
 import ncnn
 import torch
 
+
 def test_inference():
     torch.manual_seed(0)
     in0 = torch.rand(1, 3, 320, 320, dtype=torch.float)
@@ -21,6 +22,7 @@ def test_inference():
         return out[0]
     else:
         return tuple(out)
+
 
 if __name__ == "__main__":
     print(test_inference())

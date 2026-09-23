@@ -37,7 +37,9 @@ def letterbox(frame: np.ndarray, size: int) -> tuple[np.ndarray, float, int, int
     return padded, scale, left, top
 
 
-def preprocess(frame: np.ndarray, size: int, fit: str = "crop") -> tuple[np.ndarray, Fit]:
+def preprocess(
+    frame: np.ndarray, size: int, fit: str = "crop"
+) -> tuple[np.ndarray, Fit]:
     """Fit a frame into a square model input and return its tensor and geometry.
 
     fit: "crop" (center-crop to a square, then resize -- no padding),
@@ -59,7 +61,9 @@ def preprocess(frame: np.ndarray, size: int, fit: str = "crop") -> tuple[np.ndar
         geom = Fit(scale_x=size / w, scale_y=size / h, offset_x=0.0, offset_y=0.0)
     elif fit == "letterbox":
         resized, scale, left, top = letterbox(frame, size)
-        geom = Fit(scale_x=scale, scale_y=scale, offset_x=-left / scale, offset_y=-top / scale)
+        geom = Fit(
+            scale_x=scale, scale_y=scale, offset_x=-left / scale, offset_y=-top / scale
+        )
     else:
         raise ValueError(f"Unknown fit strategy: {fit}")
 
@@ -129,7 +133,9 @@ class LatestFrameGrabber:
         self._consumed_seq = 0
         self._failed = False
         self.dropped = 0  # Frames read but never inferred (expected: most of them).
-        self._thread = threading.Thread(target=self._run, name="camera-grab", daemon=True)
+        self._thread = threading.Thread(
+            target=self._run, name="camera-grab", daemon=True
+        )
 
     def start(self) -> "LatestFrameGrabber":
         self._thread.start()

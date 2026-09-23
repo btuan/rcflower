@@ -21,57 +21,85 @@ def parse_args() -> argparse.Namespace:
     """Parse and validate detector command-line options."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--camera", type=int, default=0, help="Webcam device index")
-    parser.add_argument("--model", type=Path, default=MODEL_PATH,
-                        help="Path to the NCNN .param export (default: yolov8n_ncnn_model/model.ncnn.param)")
-    parser.add_argument("--labels", type=Path, default=LABELS_PATH,
-                        help="Path to the model metadata YAML (default: yolov8n_ncnn_model/metadata.yaml)")
+    parser.add_argument(
+        "--model",
+        type=Path,
+        default=MODEL_PATH,
+        help="Path to the NCNN .param export (default: yolov8n_ncnn_model/model.ncnn.param)",
+    )
+    parser.add_argument(
+        "--labels",
+        type=Path,
+        default=LABELS_PATH,
+        help="Path to the model metadata YAML (default: yolov8n_ncnn_model/metadata.yaml)",
+    )
     parser.add_argument("--conf", type=float, default=0.4, help="Confidence threshold")
     parser.add_argument("--iou", type=float, default=0.45, help="NMS IoU threshold")
     parser.add_argument(
-        "--classes", type=str, default="person",
+        "--classes",
+        type=str,
+        default="person",
         help="Comma-separated COCO labels to detect (see models/coco.names). "
         "Empty string detects all 80 classes.",
     )
     parser.add_argument("--width", type=int, default=640, help="Capture width")
     parser.add_argument("--height", type=int, default=480, help="Capture height")
     parser.add_argument(
-        "--use-vulkan", action="store_true",
-        help="Use Vulkan for GPU inference"
+        "--use-vulkan", action="store_true", help="Use Vulkan for GPU inference"
     )
     parser.add_argument(
-        "--threads", type=int, default=1,
+        "--threads",
+        type=int,
+        default=1,
         help="NCNN CPU thread count. Pi 4B bench (320px, 2026-09-15): 1 thread=189ms/frame at 1.0 core, 3 threads=127ms at 2.8 cores -- threads scale poorly, so default to 1 and leave cores for the UI.",
     )
     parser.add_argument(
-        "--input-size", type=int, default=None,
+        "--input-size",
+        type=int,
+        default=None,
         help="Model input size in pixels (square). Defaults to the size the NCNN model was "
         "exported at (metadata.yaml imgsz). The exported graph bakes its anchor grid for that "
         "size, so any other value produces garbage boxes -- to change it, re-export the model "
         "with dev/export_model.py --imgsz N and point --model/--labels at it.",
     )
     parser.add_argument(
-        "--fit", type=str, default="crop", choices=["crop", "squish", "letterbox"],
+        "--fit",
+        type=str,
+        default="crop",
+        choices=["crop", "squish", "letterbox"],
         help="Strategy for fitting the camera frame into --input-size: "
         "crop (center-crop to a square, then resize), squish (resize directly, ignoring "
         "aspect ratio), or letterbox (resize preserving aspect, pad with gray).",
     )
-    parser.add_argument("--state-path", type=Path, default=STATE_PATH, help="Detection state JSON output path")
     parser.add_argument(
-        "--snapshot-path", type=str, default="",
+        "--state-path",
+        type=Path,
+        default=STATE_PATH,
+        help="Detection state JSON output path",
+    )
+    parser.add_argument(
+        "--snapshot-path",
+        type=str,
+        default="",
         help="JPEG snapshot output path for debugging, resized to 320px wide. Off by default: "
         "the Pi is reachable over tailscale funnel and anything under state/ that the backend "
         f"serves would be public. e.g. {SNAPSHOT_PATH}",
     )
     parser.add_argument(
-        "--snapshot-interval", type=float, default=1.0,
+        "--snapshot-interval",
+        type=float,
+        default=1.0,
         help="Minimum seconds between snapshot writes.",
     )
     parser.add_argument(
-        "--backend-url", type=str, default=BACKEND_URL,
+        "--backend-url",
+        type=str,
+        default=BACKEND_URL,
         help="Backend URL to POST detection state to. Set to '' to disable.",
     )
     parser.add_argument(
-        "--headless", action="store_true",
+        "--headless",
+        action="store_true",
         help="No GUI window -- just run detection and write --state-path",
     )
     args = parser.parse_args()
@@ -80,7 +108,9 @@ def parse_args() -> argparse.Namespace:
     if args.input_size is None:
         args.input_size = exported_size or 320
     if args.input_size % 32 != 0:
-        raise ValueError(f"--input-size must be a multiple of 32, got {args.input_size}")
+        raise ValueError(
+            f"--input-size must be a multiple of 32, got {args.input_size}"
+        )
     if exported_size is not None and args.input_size != exported_size:
         raise ValueError(
             f"--input-size {args.input_size} does not match the model's exported imgsz "
@@ -170,7 +200,16 @@ def main() -> None:
 
             if not args.headless:
                 draw_detections(frame, boxes, confidences, class_ids, labels)
-                cv2.putText(frame, f"FPS: {fps:.1f}", (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
+                cv2.putText(
+                    frame,
+                    f"FPS: {fps:.1f}",
+                    (10, 24),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 0, 255),
+                    2,
+                    cv2.LINE_AA,
+                )
                 cv2.imshow("YOLOv8n NCNN - press q to quit", frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
