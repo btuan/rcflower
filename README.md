@@ -120,6 +120,6 @@ If the index changes, update `--camera` in
 ## Licensing
 
 This software is licensed as follows:
-- Code is licensed under the MIT License
+- Code and documentation are licensed under the MIT License
 - Audiovisual material (including visual assets and their selection/arrangement)
   is licensed under Creative Commons Attribution-ShareAlike 4.0
