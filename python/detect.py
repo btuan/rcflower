@@ -160,7 +160,7 @@ def main() -> None:
             fps = 0.9 * fps + 0.1 * (1.0 / max(now - previous_time, 1e-6))
             previous_time = now
 
-            # Heartbeat log: print diagnostics every 1.0 seconds
+            # Heartbeat log: print diagnostics on startup and every 1.0 second thereafter
             if now - last_diagnostic_time >= 1.0:
                 print(
                     f"[{utc_ts()}] [detect] fps={fps:.1f} detections={len(state['detections'])} "
