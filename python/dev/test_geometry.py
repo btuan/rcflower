@@ -12,7 +12,8 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from detect import preprocess, postprocess, roi_from_fit
+from camera import preprocess, roi_from_fit
+from vision import postprocess
 
 FRAME_W, FRAME_H = 640, 480
 SIZE = 224
