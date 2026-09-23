@@ -68,7 +68,10 @@ privacy.
 
 ## Files
 
-- `detect.py` -- capture, inference, NMS, and drawing loop
+- `detect.py` -- command-line parsing and the capture-to-publication loop
+- `camera.py` -- camera capture, preprocessing, display, and frame geometry
+- `vision.py` -- NCNN model inference, labels, and detection postprocessing
+- `ipc.py` -- detection-state and snapshot publication to the web-serving process
 - `dev/export_model.py` -- development-only NCNN export helper
 - `dev/test_geometry.py` -- geometry tests for detection preprocessing and postprocessing
 - `yolov8n_ncnn_model*/` -- exported YOLOv8n NCNN model files and metadata labels
