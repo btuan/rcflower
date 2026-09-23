@@ -19,7 +19,11 @@ def utc_ts() -> str:
     This function takes the output of ``datetime.isoformat()`` and replaces the trailing
     ``+00:00`` with a ``Z``. For example, it would return ``2026-09-04T15:43:06.123Z``.
     """
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
 
 
 def build_state(
@@ -122,7 +126,9 @@ def post_state(url: str, state: dict, timeout: float = 1.0) -> None:
 _last_snapshot_time = 0.0
 
 
-def write_snapshot(path: Path, frame: np.ndarray, interval: float, width: int = 320) -> None:
+def write_snapshot(
+    path: Path, frame: np.ndarray, interval: float, width: int = 320
+) -> None:
     """Publish a throttled, resized JPEG snapshot through the current file IPC.
 
     This is the current approximation of a stream for the disabled debug view.
@@ -138,7 +144,9 @@ def write_snapshot(path: Path, frame: np.ndarray, interval: float, width: int = 
 
     h, w = frame.shape[:2]
     scale = width / w
-    small = cv2.resize(frame, (width, max(1, int(round(h * scale)))), interpolation=cv2.INTER_AREA)
+    small = cv2.resize(
+        frame, (width, max(1, int(round(h * scale)))), interpolation=cv2.INTER_AREA
+    )
     ok, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 70])
     if not ok:
         return

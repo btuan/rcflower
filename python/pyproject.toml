@@ -16,6 +16,7 @@ package = false
 
 [dependency-groups]
 dev = [
+    "black>=26.5.1",
     "pytest>=9.1.1",
     "ultralytics>=8.4.144",
 ]

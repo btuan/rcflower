@@ -20,7 +20,9 @@ def load_labels(path: Path) -> list[str]:
         names = data.get("names")
         if isinstance(names, dict):
             ordered = []
-            for key in sorted(names, key=lambda item: int(item) if str(item).isdigit() else 999999):
+            for key in sorted(
+                names, key=lambda item: int(item) if str(item).isdigit() else 999999
+            ):
                 ordered.append(names[key])
             return ordered
         if isinstance(names, list):
@@ -32,7 +34,10 @@ def load_labels(path: Path) -> list[str]:
 
 def load_export_imgsz(metadata_path: Path) -> int | None:
     """Square input size the model was exported at, from Ultralytics metadata.yaml (None if unknown)."""
-    if metadata_path.suffix.lower() not in {".yaml", ".yml"} or not metadata_path.exists():
+    if (
+        metadata_path.suffix.lower() not in {".yaml", ".yml"}
+        or not metadata_path.exists()
+    ):
         return None
     data = yaml.safe_load(metadata_path.read_text(encoding="utf-8")) or {}
     imgsz = data.get("imgsz")
@@ -85,7 +90,12 @@ def postprocess(
 
     # Map model-space coords back to original frame pixel coordinates:
     # frame_x = model_x / scale_x + offset_x (inverse of Fit's mapping).
-    cx, cy, w, h = boxes_xywh[:, 0], boxes_xywh[:, 1], boxes_xywh[:, 2], boxes_xywh[:, 3]
+    cx, cy, w, h = (
+        boxes_xywh[:, 0],
+        boxes_xywh[:, 1],
+        boxes_xywh[:, 2],
+        boxes_xywh[:, 3],
+    )
     x1 = (cx - w / 2) / fit.scale_x + fit.offset_x
     y1 = (cy - h / 2) / fit.scale_y + fit.offset_y
     box_w = w / fit.scale_x
@@ -112,7 +122,11 @@ class Detector:
     """An NCNN YOLOv8 model configured for repeated camera-frame inference."""
 
     def __init__(self, model_path: Path, use_vulkan: bool, threads: int) -> None:
-        model_bin = model_path.with_suffix(".bin") if model_path.suffix.lower() == ".param" else model_path.parent / f"{model_path.stem}.bin"
+        model_bin = (
+            model_path.with_suffix(".bin")
+            if model_path.suffix.lower() == ".param"
+            else model_path.parent / f"{model_path.stem}.bin"
+        )
         self.net = NCNN.Net()
         self.net.opt.use_vulkan_compute = use_vulkan
         self.net.opt.num_threads = threads

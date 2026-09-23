@@ -11,7 +11,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -39,7 +38,9 @@ def main() -> None:
         default="yolov8n.pt",
         help="Ultralytics weights name/path, relative to the Python project root",
     )
-    parser.add_argument("--imgsz", type=int, default=320, help="Square input resolution")
+    parser.add_argument(
+        "--imgsz", type=int, default=320, help="Square input resolution"
+    )
     parser.add_argument(
         "--precision",
         choices=["float32", "float16"],

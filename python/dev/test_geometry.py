@@ -23,7 +23,9 @@ def make_frame() -> np.ndarray:
     return np.zeros((FRAME_H, FRAME_W, 3), dtype=np.uint8)
 
 
-def make_output(cx: float, cy: float, w: float, h: float, num_classes: int = 80) -> np.ndarray:
+def make_output(
+    cx: float, cy: float, w: float, h: float, num_classes: int = 80
+) -> np.ndarray:
     """Build a fake (4 + num_classes, 1) YOLOv8-style output with one confident box.
 
     Class 0 gets a high score; everything else is low, so exactly one box
@@ -52,7 +54,10 @@ def test_letterbox_center_box_maps_back():
     # 640x480 -> scale = 224/640 = 0.35; nh = 480*0.35 = 168; pad_top = (224-168)/2 = 28
     # A model-space box centered at the model's center should map back to the frame's center.
     boxes, confidences, class_ids = postprocess(
-        make_output(SIZE / 2, SIZE / 2, 20, 20), fit, conf_threshold=0.5, iou_threshold=0.45
+        make_output(SIZE / 2, SIZE / 2, 20, 20),
+        fit,
+        conf_threshold=0.5,
+        iou_threshold=0.45,
     )
     assert len(boxes) == 1
     x1, y1, x2, y2 = boxes[0]
@@ -90,7 +95,10 @@ def test_squish_different_x_y_scale():
     # Model-space box spanning the full model width/height should map back to
     # the full frame width/height.
     boxes, confidences, class_ids = postprocess(
-        make_output(SIZE / 2, SIZE / 2, SIZE, SIZE), fit, conf_threshold=0.5, iou_threshold=0.45
+        make_output(SIZE / 2, SIZE / 2, SIZE, SIZE),
+        fit,
+        conf_threshold=0.5,
+        iou_threshold=0.45,
     )
     assert len(boxes) == 1
     x1, y1, x2, y2 = boxes[0]
