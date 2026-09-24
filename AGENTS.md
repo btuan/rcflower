@@ -11,6 +11,7 @@ Notes for agents (and humans) working in this repo.
 | `python/` | Vision service: NCNN YOLOv8n object detection from a webcam. Separate process. | Python 3 |
 | `state/` | Runtime scratch. `state/detections.json` is written by `python/detect.py` and read by the backend. Gitignored. | — |
 | `assets/` | Source art / model inputs. | — |
+| `docs/design/` | Design docs for proposed, not-yet-implemented work. Check here before starting on an area that might already have an in-flight design. | — |
 
 ## How the pieces talk
 
