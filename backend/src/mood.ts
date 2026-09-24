@@ -13,9 +13,10 @@ export type Mood = "happy" | "neutral" | "sad" | "dead";
 //
 // Presence (person in frame) is intentionally NOT part of this -- it drives the
 // bounce animation on the frontend, not which mood is shown.
-const HAPPY_MS = 20_000;
-const NEUTRAL_MS = 50_000;
-const DEAD_MS = 60_000;
+const HOURS = 3_600_000;
+const HAPPY_MS = 1 * HOURS;
+const NEUTRAL_MS = 36 * HOURS;
+const DEAD_MS = 48 * HOURS;
 
 // ms epoch of the most recent watering, or null if we've never seen one.
 // Seeded from the DB so a restart doesn't reset a thriving flower to "dead".
