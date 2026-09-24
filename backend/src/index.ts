@@ -2,6 +2,19 @@ import { config } from "./config.ts";
 import { commit, startedAt } from "./buildinfo.ts";
 import "./db.ts";
 import {
+  buildAuthorizeUrl,
+  clearSessionCookieHeader,
+  clearStateCookieHeader,
+  exchangeCodeForToken,
+  fetchRcProfile,
+  getSession,
+  parseCookies,
+  randomState,
+  sessionCookieHeader,
+  stateCookieHeader,
+  verifyState,
+} from "./auth.ts";
+import {
   getState,
   ingestDetectionState,
   isPersonInFrame,
@@ -27,24 +40,6 @@ const clientIp = (req: Request, server: Bun.Server<undefined>): string | null =>
   const fwd = req.headers.get("x-forwarded-for");
   if (fwd) return fwd.split(",")[0]!.trim();
   return server.requestIP(req)?.address ?? null;
-};
-
-/** Parse a `Cookie:` header into a plain object; a missing header yields `{}`. */
-const parseCookies = (header: string | null): Record<string, string> => {
-  const out: Record<string, string> = {};
-  for (const part of header?.split(";") ?? []) {
-    const eq = part.indexOf("=");
-    if (eq < 0) continue;
-    const key = part.slice(0, eq).trim();
-    const value = part.slice(eq + 1).trim();
-    if (!key) continue;
-    try {
-      out[key] = decodeURIComponent(value); // Decodes percent-encoding like %20 to spaces
-    } catch {
-      out[key] = value; // malformed percent-encoding -- keep it raw
-    }
-  }
-  return out;
 };
 
 /** Display name from the `user` cookie, or null if absent / not valid JSON. */
@@ -177,6 +172,65 @@ async function handleSimulateSweep(req: Request): Promise<Response> {
   return Response.json({ sweeping: isSweeping() });
 }
 
+/** 401 JSON if the request has no valid RC session cookie; otherwise null (caller proceeds). */
+const requireSession = (req: Request): Response | null =>
+  getSession(req) ? null : Response.json({ error: "authentication required" }, { status: 401 });
+
+/** GET /auth/rc/login -- stash a CSRF state cookie, then redirect to RC's OAuth authorize screen. */
+function handleRcLogin(): Response {
+  const state = randomState();
+  return new Response(null, {
+    status: 302,
+    headers: { Location: buildAuthorizeUrl(state), "Set-Cookie": stateCookieHeader(state) },
+  });
+}
+
+/** POST /auth/logout -- clear the session cookie. */
+const handleLogout = (): Response =>
+  new Response(null, { status: 204, headers: { "Set-Cookie": clearSessionCookieHeader() } });
+
+/** GET /api/auth/me -- the current session, if any. */
+function handleAuthMe(req: Request): Response {
+  const session = getSession(req);
+  return Response.json(
+    session ? { authenticated: true, name: session.name } : { authenticated: false },
+  );
+}
+
+/**
+ * RC's OAuth `redirect_uri` is registered as this exact URL, so the callback
+ * lands the browser back on `/debug` itself (mirroring phoneroom.recurse.com:
+ * the same URL whether logging in or out) rather than a separate route. A
+ * `code`/`state` query on `/debug` means this request IS that callback, not
+ * a page load -- everything else falls through to the SPA as usual.
+ */
+async function handleDebugOAuthCallback(req: Request, url: URL): Promise<Response | null> {
+  const code = url.searchParams.get("code");
+  const state = url.searchParams.get("state");
+  if (!code || !state) return null;
+
+  if (!verifyState(req, state)) {
+    return Response.json(
+      { error: "invalid OAuth state" },
+      { status: 400, headers: { "Set-Cookie": clearStateCookieHeader() } },
+    );
+  }
+
+  const accessToken = await exchangeCodeForToken(code);
+  const profile = accessToken ? await fetchRcProfile(accessToken) : null;
+  if (!profile) {
+    return Response.json(
+      { error: "RC OAuth exchange failed" },
+      { status: 502, headers: { "Set-Cookie": clearStateCookieHeader() } },
+    );
+  }
+
+  const headers = new Headers({ Location: "/debug" });
+  headers.append("Set-Cookie", clearStateCookieHeader());
+  headers.append("Set-Cookie", sessionCookieHeader(profile));
+  return new Response(null, { status: 302, headers });
+}
+
 const server = Bun.serve({
   port: config.port,
   hostname: config.host,
@@ -184,17 +238,19 @@ const server = Bun.serve({
   idleTimeout: 0,
 
   async fetch(req, server) {
-    const { pathname } = new URL(req.url);
+    const url = new URL(req.url);
+    const { pathname } = url;
+
+    if (pathname === "/debug") {
+      const callback = await handleDebugOAuthCallback(req, url);
+      if (callback) return callback;
+    }
 
     switch (pathname) {
       case "/api/health":
         return Response.json({ ok: true, dev: config.dev, commit, startedAt });
-      case "/api/time":
-        return Response.json({ now: Date.now() });
       case "/api/detections":
         return req.method === "POST" ? handleDetections(req) : Response.json(getState());
-      case "/api/detections/latest":
-        return handleDetectionsLatest();
       case "/api/events":
         return handleEvents(req);
       case "/api/pour":
@@ -203,12 +259,32 @@ const server = Bun.serve({
         return req.method === "POST"
           ? handleWater(req, server)
           : Response.json(recentWatering());
+      case "/auth/rc/login":
+        return handleRcLogin();
+      case "/auth/logout":
+        return req.method === "POST"
+          ? handleLogout()
+          : new Response("Method Not Allowed", { status: 405 });
+      case "/api/auth/me":
+        return handleAuthMe(req);
+
+      // debug-only: nothing but /debug depends on these (confirmed against
+      // frontend call sites, see docs/design/video-and-annotation-pipeline.md).
+      case "/api/time":
+        return requireSession(req) ?? Response.json({ now: Date.now() });
+      case "/api/detections/latest":
+        return requireSession(req) ?? handleDetectionsLatest();
       case "/api/debug/latency":
-        return Response.json({ samples: getSamples(), stats: getStats() });
+        return requireSession(req) ?? Response.json({ samples: getSamples(), stats: getStats() });
       case "/api/debug/simulate-person":
-        return req.method === "POST" ? handleSimulatePerson(req) : simulateStatus();
+        return (
+          requireSession(req) ?? (req.method === "POST" ? handleSimulatePerson(req) : simulateStatus())
+        );
       case "/api/debug/simulate-sweep":
-        return req.method === "POST" ? handleSimulateSweep(req) : Response.json({ sweeping: isSweeping() });
+        return (
+          requireSession(req) ??
+          (req.method === "POST" ? handleSimulateSweep(req) : Response.json({ sweeping: isSweeping() }))
+        );
     }
 
     if (pathname.startsWith("/api/")) {

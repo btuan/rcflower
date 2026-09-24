@@ -3,8 +3,16 @@
 Bun HTTP server. Single entry point for the app.
 
 - `GET /api/health` — `{ ok, dev, commit, startedAt }`
-- `GET /api/time` — `{ now: <ms epoch> }`; used by `/debug` to estimate the
-  browser<->server clock offset (NTP-style probe)
+- `GET /auth/rc/login` — redirects to Recurse Center's OAuth2 authorize
+  screen (stashing a short-lived CSRF `state` cookie first).
+- `POST /auth/logout` — clears the session cookie.
+- `GET /api/auth/me` — `{ authenticated: false }` or
+  `{ authenticated: true, name }` for the current browser session.
+- `GET /debug` with `?code=&state=` — not a page load: this is RC's OAuth
+  `redirect_uri` (registered as this exact URL, so the callback lands back
+  on `/debug` itself). Exchanges the code, sets the session cookie, then
+  redirects to a clean `/debug`. See `src/auth.ts` and
+  `docs/design/video-and-annotation-pipeline.md`.
 - `GET /api/detections` — current detection state
 - `POST /api/detections` — ingest a detection state update; body
   `{ timestamp: number, detections: { label: string, confidence?: number, box?: number[] }[], capturedAt?: number, inferredAt?: number, sentAt?: number, frameSize?: [w, h], roi?: [x1, y1, x2, y2] }`.
@@ -19,6 +27,14 @@ Bun HTTP server. Single entry point for the app.
   `400` if the body doesn't match the shape above.
 - `GET /api/detections/latest` — `{ frameSize, roi, detections, capturedAt }`
   from the current state (nulls if nothing ingested yet). For the debug page.
+
+  `/api/time`, `/api/detections/latest`, `/api/debug/latency`,
+  `/api/debug/simulate-person`, and `/api/debug/simulate-sweep` all require a
+  valid RC session cookie (`401` otherwise) — confirmed against actual
+  frontend call sites, nothing but `/debug` depends on them. Everything else
+  (`/api/events`, `/api/pour`, `/api/water`, `/api/detections`) stays open,
+  since `/live`, `/watering-can`, and `python/detect.py`'s POSTs depend on
+  them too.
 - `GET /api/events` — SSE stream; emits `person` events on change:
   `{ inFrame: boolean, t: { capturedAt, inferredAt, sentAt, receivedAt, broadcastAt } }`
   (all ms epoch, null for any stage the POST didn't include); `mood` events

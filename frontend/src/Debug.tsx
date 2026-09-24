@@ -268,7 +268,57 @@ function SimulateSweep() {
   );
 }
 
+type AuthState = { status: "loading" } | { status: "out" } | { status: "in"; name: string };
+
+/** GET /api/auth/me on mount -- whether this browser has a valid RC session. */
+function useAuth(): AuthState {
+  const [auth, setAuth] = useState<AuthState>({ status: "loading" });
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((data: { authenticated: boolean; name?: string }) => {
+        if (cancelled) return;
+        setAuth(data.authenticated ? { status: "in", name: data.name ?? "" } : { status: "out" });
+      })
+      .catch(() => {
+        if (!cancelled) setAuth({ status: "out" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return auth;
+}
+
+function DebugLogin() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-neutral-950 p-6 font-mono text-sm text-neutral-100">
+      <div className="max-w-sm text-center">
+        <h1 className="mb-3 text-lg font-bold">latency debug</h1>
+        <p className="mb-6 text-neutral-400">
+          Live camera detection boxes and pipeline latency for RC Flower. Sign in with your
+          Recurse Center account to view it.
+        </p>
+        <a
+          href="/auth/rc/login"
+          className="inline-block rounded bg-emerald-700 px-4 py-2 font-bold hover:bg-emerald-600"
+        >
+          Sign in with Recurse Center
+        </a>
+      </div>
+    </div>
+  );
+}
+
 export function Debug() {
+  const auth = useAuth();
+  if (auth.status === "loading") return null;
+  if (auth.status === "out") return <DebugLogin />;
+  return <DebugContent name={auth.name} />;
+}
+
+function DebugContent({ name }: { name: string }) {
   const [status, setStatus] = useState("connecting…");
   const [clock, setClock] = useState<{ offsetMs: number; rttMs: number } | null>(null);
   const [latency, setLatency] = useState<LatencyResponse | null>(null);
@@ -359,10 +409,20 @@ export function Debug() {
       <p className="mb-1 text-neutral-500">
         build: {__COMMIT_SHA__} ({__BUILD_TIME__})
       </p>
-      <p className="mb-4 text-neutral-400">
+      <p className="mb-1 text-neutral-400">
         SSE: {status} · clock offset:{" "}
         {clock ? `${clock.offsetMs.toFixed(0)} ms (browser ahead if positive)` : "estimating…"} ·
         RTT: {clock ? `${clock.rttMs.toFixed(0)} ms` : "—"}
+      </p>
+      <p className="mb-4 text-neutral-400">
+        signed in as {name} ·{" "}
+        <button
+          type="button"
+          className="underline hover:text-neutral-200"
+          onClick={() => void fetch("/auth/logout", { method: "POST" }).then(() => window.location.reload())}
+        >
+          sign out
+        </button>
       </p>
 
       <SimulatePerson />

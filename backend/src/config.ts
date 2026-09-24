@@ -15,4 +15,11 @@ export const config = {
   frontendDist: fromRoot(Bun.env.FRONTEND_DIST ?? "frontend/dist"),
   viteHost: Bun.env.VITE_HOST ?? "127.0.0.1",
   vitePort: Number(Bun.env.VITE_PORT ?? 5173),
+
+  // RC OAuth2 (see docs/design/video-and-annotation-pipeline.md) -- secrets,
+  // always per-machine in .env.local, never committed to .env.
+  rcOAuthClientId: Bun.env.RC_OAUTH_CLIENT_ID ?? "",
+  rcOAuthClientSecret: Bun.env.RC_OAUTH_CLIENT_SECRET ?? "",
+  rcOAuthRedirectUri: Bun.env.RC_OAUTH_REDIRECT_URI ?? "",
+  sessionSecret: Bun.env.SESSION_SECRET ?? "",
 };
