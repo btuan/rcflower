@@ -78,9 +78,27 @@ currently dead by design, not by omission.
   backend needs to `unlink()` a stale socket file before rebinding after a
   crash. Backend and detect run as independently-restartable systemd units
   (see root `AGENTS.md` deploy section) — preserve that independence.
-- **Auth scope.** Gate the new video/annotation endpoint the same way as
-  `/api/debug/*` — but leave `GET /api/events` alone; it also backs the
-  public `/live` display and must stay open.
+- **Auth scope.** Gate only the endpoints `/debug` alone depends on —
+  confirmed against actual frontend call sites, not assumption:
+  - `GET /api/time` — Debug.tsx's NTP-style clock-offset probe.
+  - `GET /api/detections/latest` — frame geometry (`frameSize`, `roi`) and
+    the raw per-object detection boxes; polled by `DetectionView.tsx`.
+  - `GET/POST /api/debug/latency` — the capture→infer→sent→received→
+    broadcast timing ring buffer + percentile stats (`latency.ts`).
+  - `GET/POST /api/debug/simulate-person` — forces `person_in_frame` for
+    `{ seconds }` so the UI can be exercised without a live person.
+  - `GET/POST /api/debug/simulate-sweep` — injects a synthetic person
+    sweeping across the frame, through the same `ingestDetectionState` path
+    a real camera frame uses.
+  - The new video/annotation channel, once it exists.
+
+  Leave everything else open: `GET /api/events` (SSE) is one shared stream —
+  `person`/`mood`/`pour`/`watering`/`track` — consumed by `Debug.tsx`,
+  `Flower.tsx`, *and* `FlowerLive.tsx`, so gating it would break `/live`.
+  `POST/GET /api/pour` and `POST/GET /api/water` back `/watering-can` and
+  must stay public too. `POST /api/detections` (Python → backend ingestion)
+  is server-to-server, not a browser session, so RC OAuth doesn't apply to
+  it at all.
 
 ## References
 
