@@ -1,6 +1,8 @@
 # Video + annotation pipeline redesign
 
-Status: **Draft — proposed, not yet implemented** (as of 2026-09-24)
+Status: **Partially implemented** — the OAuth2 gate has landed; the video/
+annotation transport itself is still proposed, not yet implemented (as of
+2026-09-25)
 
 ## Context
 
@@ -31,13 +33,21 @@ currently dead by design, not by omission.
   endpoint) are gated behind Recurse Center OAuth2. Restricting access to
   specific Recursers is out of scope for now — any valid RC account passes.
 
-## Recommended sequencing
+## Checklist
 
-1. **Ship the OAuth2 gate first, as its own PR**, independent of the video
-   work. It's the thing already named as the blocker on serving pixels at
-   all, it's smaller to review in isolation, and it unblocks even a trivial
-   `frame.jpg`-style endpoint on its own.
-2. Land the video/annotation transport on top, once the gate exists.
+- [x] Ship the RC OAuth2 gate for `/debug` and its backing APIs, as its own
+      PR independent of the video work — merged to `main` (`1636e57`).
+- [ ] Spike H.264 encode feasibility on the Pi 4 (hardware V4L2 M2M vs.
+      software) against a USB-webcam frame buffer.
+- [ ] Settle the transport: WebSocket, and specifically what rides on it
+      (MPEG-TS via a client-side demuxer is the current leading option — see
+      below) vs. a WebRTC media gateway.
+- [ ] Design the Unix-socket IPC framing between `detect.py` and the
+      backend (message type, frame ID, PTS; explicit reconnect/backoff).
+- [ ] Backend relay endpoint (WebSocket, gated by the existing
+      `requireSession` from `src/auth.ts`).
+- [ ] Frontend player: `<video>` + transparent `<canvas>` overlay, replacing
+      or extending `DetectionView.tsx`.
 
 ## Open design decisions / feedback from review
 
@@ -51,6 +61,32 @@ currently dead by design, not by omission.
   WebSocket + MSE given this is a Hub-local diagnostic view; reach for a
   WebRTC gateway only if sub-second glass-to-glass latency turns out to
   matter for a real use case beyond `/debug`.
+- **MPEG-TS over WebSocket, for the video leg specifically, looks like a good
+  fit within the WebSocket+MSE bucket above** — worth prototyping rather
+  than hand-rolling a bespoke envelope for the video bytes themselves.
+  MPEG-TS already solves exactly this problem (multiplexed elementary
+  streams with PCR/PTS-based sync), `ffmpeg -f mpegts` produces it for free,
+  and there's real prior art for this exact use case: `mpegts.js` (and
+  `flv.js` before it) exist specifically for low-latency IP-camera-style
+  streaming, demuxing MPEG-TS in JS and remuxing to fragmented MP4 for MSE.
+  Two caveats worth being honest about before committing:
+  - No browser's `MediaSource` accepts `video/mp2t` natively — you still
+    need a JS demuxer/remuxer (`mpegts.js` or similar) in the browser, or an
+    equivalent WebCodecs-based path. It's not a drop-in `<video src>`.
+  - Don't mux the annotation JSON into the TS stream as a private PES
+    stream — that means hand-writing custom PES packetization on the Python
+    side and extending whatever demuxer you pick to not choke on/ignore an
+    unrecognized stream type. Simpler and just as synchronized: send
+    annotations as separate WebSocket messages on the same connection,
+    timestamped from the same `capturedAt`/PTS domain the video uses. TS's
+    resilience machinery (fixed 188-byte packets, repeated PAT/PMT, PCR
+    clock recovery) exists to survive lossy broadcast/tuner delivery, which
+    isn't the problem here — this is a reliable local Unix socket feeding a
+    single WebSocket you already control end to end. Worth also weighing a
+    plain WebCodecs path (feed raw H.264 access units straight to
+    `VideoDecoder.decode()`, no container at all) against MPEG-TS+mpegts.js
+    once the encode spike above lands — it sidesteps the demux step entirely
+    and hands back per-frame timestamps directly.
 - **Hardware H.264 encode feasibility is unverified for a USB webcam.** The
   Pi 4's HW encoder path (`rpicam-vid`/libcamera) is built around the Pi
   camera stack; `camera.py` captures via plain `cv2.VideoCapture`, which
