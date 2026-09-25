@@ -69,6 +69,14 @@ confirmed by direct testing on this device instead. See
   expose it on this GPU, or the hardware itself lacks it; either way, don't
   re-attempt a Mesa upgrade expecting this to unlock it without new
   evidence.
+- **Peak FLOP/s estimates** (theoretical, from clock speed × ALU/lane
+  counts — not directly measured, so treat as an upper bound):
+  - CPU: 4 cores × 1.8GHz × 16 FLOP/cycle/core = 115.2 GFLOP/s (28.8 GFLOP/s
+    on one core) — [FLOP/cycle reference](https://en.wikipedia.org/wiki/Floating_point_operations_per_second#Floating-point_operations_per_clock_cycle_for_various_processors).
+    16 FLOP/cycle/core = 4 lanes × 2 FMA ops/lane × 2 SIMD pipelines/core.
+  - GPU: 500MHz × 2 slices × 4 QPU/slice × 4 physical cores/QPU × 2 ops/cycle
+    = 32 GFLOP/s, per [py-videocore6](https://github.com/Idein/py-videocore6)'s
+    README.
 
 ## Deployment host
 
