@@ -26,7 +26,7 @@ transport work, which shares the same GPU/H.264-encoder facts.
   processes on the Pi — e.g. Chromium, tried to display the flower on a
   monitor, crashed before the page even loaded. Preprocessing changes since
   then (center-crop + resize to 224px square, pinned to one core) have cut
-  that to ~100%, and opening Chromium alongside the backend and detect
+  that to 108-126%, and opening Chromium alongside the backend and detect
   processes now works.
 - It may also increase power draw (CPUs reduce power consumption at low
   utilization), which is bad for the environment and doesn't spark joy 🙁 —

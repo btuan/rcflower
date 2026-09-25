@@ -98,7 +98,7 @@ rather than appending a newer number alongside a stale one.
 - **Current (measured ~2026-09-22)**: with input preprocessing changed to
   center-crop + resize to 224px square, and `rcflower-detect` pinned to a
   single CPU core (OS-level affinity, distinct from NCNN's own `--threads`
-  setting below): **~100% CPU utilization**, **9-10 fps** on CPU, **1.7 fps**
+  setting below): **~115% CPU utilization**, **9-10 fps** on CPU, **1.7 fps**
   on GPU (Vulkan) inference.
   - *(Superseded, kept for context: an earlier config — larger input size,
     not pinned to one core — measured ~300% CPU (~3 of 4 cores) and ~7.6 fps
