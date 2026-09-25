@@ -24,6 +24,23 @@ had drifted into being the only hardware fact written down anywhere.
   `-c:v h264_v4l2m2m`) — not something `cv2` hands you directly. See
   `docs/design/video-and-annotation-pipeline.md`.
 
+## Compute capability limits
+
+Both confirmed by direct testing, not just spec-sheet reading — see
+`docs/design/ml-inference-optimization.md` for how each was found:
+
+- **Cortex-A72 has no fp16 SIMD support** (no ARMv8.2-A FP16 extension). A
+  model exported as float16 doesn't get a speedup from this CPU — values
+  are silently promoted back to float32 for NEON math, so there's no point
+  re-testing a float16 export expecting a win from this alone.
+- **VideoCore VI (VC6) does not support arithmetic subgroup operations**
+  (needed for reduction-based layers like maxpool/softmax) — confirmed
+  still absent even after upgrading the Mesa driver specifically to get
+  this (Mesa 25.3.0+ claims to add it). Either the upgrade didn't actually
+  expose it on this GPU, or the hardware itself lacks it; either way, don't
+  re-attempt a Mesa upgrade expecting this to unlock it without new
+  evidence.
+
 ## Deployment host
 
 - Hostname `kirwinpi`, physically at the RC Hub, repo at
@@ -37,21 +54,39 @@ had drifted into being the only hardware fact written down anywhere.
 
 ## Known resource baseline
 
-- `rcflower-detect` runs at roughly **300% CPU** (~3 of 4 cores) in its
-  current configuration (CPU inference, float32, NCNN). That leaves little
-  headroom: attempting to also run Chromium on the Pi, to display the flower
-  on a monitor, crashed before the page even loaded.
+Numbers here go stale quickly as the preprocessing/inference config
+changes — check the date on each before trusting it, and update in place
+rather than appending a newer number alongside a stale one.
+
+- **Current (measured 2026-09-25)**: with input preprocessing changed to
+  center-crop + resize to 224px square, and `rcflower-detect` pinned to a
+  single CPU core (OS-level affinity, distinct from NCNN's own `--threads`
+  setting below): **~100% CPU utilization**, **9-10 fps** on CPU, **1.7 fps**
+  on GPU (Vulkan) inference.
+  - *(Superseded, kept for context: an earlier config — larger input size,
+    not pinned to one core — measured ~300% CPU (~3 of 4 cores) and ~7.6 fps
+    CPU / ~0.9 fps GPU. That headroom problem is what originally motivated
+    this doc, e.g. Chromium crashing before its page even loaded when run
+    alongside detection. Whether that specific problem still reproduces at
+    the current ~100% baseline hasn't been retested.)*
 - NCNN CPU thread-count scaling is poor, not linear (`python/detect.py`'s
   own bench note, 320px input, measured 2026-09-15): 1 thread = 189ms/frame
   at ~1.0 core; 3 threads = 127ms/frame at ~2.8 cores. `detect.py` defaults
   to 1 thread for this reason, leaving cores free for everything else.
-- GPU (Vulkan) inference was tried and is *slower* than CPU: ~0.9 fps vs.
-  ~7.6 fps. Disabled by default (`--use-vulkan` still exists as an opt-in
-  flag). See `docs/design/ml-inference-optimization.md` for the
-  FLOP-throughput analysis behind why.
+- GPU (Vulkan) inference is consistently *slower* than CPU in every config
+  tested so far (see current numbers above). Disabled by default
+  (`--use-vulkan` still exists as an opt-in flag). See
+  `docs/design/ml-inference-optimization.md` for the FLOP-throughput
+  analysis behind why.
 - Upgrading the Mesa driver, hoping newer arithmetic-subgroup-op support
   would help GPU inference, was tried on real hardware and made no
-  measurable difference. See `docs/design/ml-inference-optimization.md`.
+  measurable difference — see "Compute capability limits" above.
+- Preliminary power/thermal comparison (`vcgencmd measure_temp`, not a
+  controlled experiment — CPU and GPU runs were also at different frame
+  rates): **~54°C running on CPU vs. ~45°C running on GPU**. Suggestive that
+  GPU inference may be more power-efficient despite being slower, but needs
+  a properly controlled re-test (matched frame rate or duty cycle) before
+  treating it as a real finding.
 
 ## See also
 
