@@ -7,7 +7,7 @@ had drifted into being the only hardware fact written down anywhere.
 
 ## Device
 
-- Raspberry Pi 4 Model B (4B).
+- [Raspberry Pi 4 Model B](https://www.raspberrypi.com/products/raspberry-pi-4-model-b/specifications/) (4B).
   - SoC: Broadcom BCM2711, quad-core Cortex-A72 (ARMv8-A, 64-bit) @ 1.8GHz.
   - GPU: Broadcom VideoCore VI (VC6).
     - Compute/graphics: Vulkan 1.0, OpenGL ES 3.1.
@@ -43,7 +43,19 @@ negotiation), this is a candidate optimization — less USB bandwidth and no
 
 ## Compute capability limits
 
-Both confirmed by direct testing, not just spec-sheet reading — see
+The VC6 has no public architecture documentation from Broadcom. Community
+knowledge of its internals is largely inferred from its predecessor, the
+VC4, plus scattered reverse-engineering:
+
+- [Broadcom VideoCore IV (VC4) 3D Architecture Reference Guide](https://docs.broadcom.com/doc/12358545)
+  — the best public doc available, but for the *previous* generation.
+- [Raspberry Pi forum thread on VC6 internals](https://forums.raspberrypi.com/viewtopic.php?t=244519)
+- [V3DLib FAQ](https://github.com/wimrijnders/V3DLib/blob/main/Doc/FAQ.md) —
+  describes its own VC6 info as "cobbled [together] from whatever I and
+  others have found out."
+
+So there's no spec sheet to check the limits below against — they're
+confirmed by direct testing on this device instead. See
 `docs/design/ml-inference-optimization.md` for how each was found:
 
 - **Cortex-A72 has no fp16 SIMD support** (no ARMv8.2-A FP16 extension). A
