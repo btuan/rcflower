@@ -116,6 +116,12 @@ transport work, which shares the same GPU/H.264-encoder facts.
   relevant specifically when running inference on the GPU path (Vulkan),
   where the frame currently has to round-trip through CPU-side preprocessing
   before it reaches GPU memory.
+- Idea, not yet started: request a smaller uncompressed resolution directly
+  from the camera (UVC format negotiation) instead of always capturing at
+  640×480 — the camera's max uncompressed resolution, see `docs/hardware.md`
+  — and downscaling to the model input size in software. Would cut both USB
+  bandwidth and `cv2.resize` cost, independent of which inference backend
+  (CPU/GPU) is used.
 - Nuclear option: ditch the CV model and use near-field communication
   instead. [Not currently supported in any major browser](https://caniuse.com/webnfc) 😕.
 
