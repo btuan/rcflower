@@ -12,6 +12,7 @@ Notes for agents (and humans) working in this repo.
 | `state/` | Runtime scratch. `state/detections.json` is written by `python/detect.py` and read by the backend. Gitignored. | — |
 | `assets/` | Source art / model inputs. | — |
 | `docs/design/` | Design docs for proposed, not-yet-implemented work. Check here before starting on an area that might already have an in-flight design. | — |
+| `docs/hardware.md` | Reference: physical specs of the deployed device (SoC, GPU, camera type) and measured resource baselines -- facts, not proposals. | — |
 
 ## How the pieces talk
 
