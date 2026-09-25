@@ -88,9 +88,11 @@ currently dead by design, not by omission.
     once the encode spike above lands — it sidesteps the demux step entirely
     and hands back per-frame timestamps directly.
 - **Hardware H.264 encode feasibility is unverified for a USB webcam.** The
-  Pi 4's HW encoder path (`rpicam-vid`/libcamera) is built around the Pi
-  camera stack; `camera.py` captures via plain `cv2.VideoCapture`, which
-  hands back decoded frames in userspace, not a camera-stack handle. Getting
+  SoC's VideoCore VI does have a hardware H.264 encoder (1080p30, see
+  `docs/hardware.md`) — the open question is reachability, not existence.
+  Its usual path (`rpicam-vid`/libcamera) is built around the Pi camera
+  stack; `camera.py` captures via plain `cv2.VideoCapture`, which hands back
+  decoded frames in userspace, not a camera-stack handle. Getting
   those into the V4L2 M2M encoder (e.g. `/dev/video11`) needs something like
   GStreamer's `v4l2h264enc` or ffmpeg's `-c:v h264_v4l2m2m` — not something
   `cv2` does directly. Spike this on real hardware (throughput, CPU cost of
@@ -138,6 +140,9 @@ currently dead by design, not by omission.
 
 ## References
 
+- `docs/hardware.md` — device specs (SoC, GPU, camera type) referenced above.
+- `docs/design/ml-inference-optimization.md` — the CV pipeline optimization
+  workstream; shares the same GPU/encoder hardware.
 - `python/ipc.py`, `python/detect.py`, `python/camera.py`
 - `backend/src/detections.ts`, `backend/src/index.ts`, `backend/src/latency.ts`
 - Prior commits: `2eeeb3a` (remove camera snapshot route), `fba33d0`
