@@ -58,7 +58,7 @@ Numbers here go stale quickly as the preprocessing/inference config
 changes — check the date on each before trusting it, and update in place
 rather than appending a newer number alongside a stale one.
 
-- **Current (measured 2026-09-25)**: with input preprocessing changed to
+- **Current (measured ~2026-09-22)**: with input preprocessing changed to
   center-crop + resize to 224px square, and `rcflower-detect` pinned to a
   single CPU core (OS-level affinity, distinct from NCNN's own `--threads`
   setting below): **~100% CPU utilization**, **9-10 fps** on CPU, **1.7 fps**
@@ -67,8 +67,7 @@ rather than appending a newer number alongside a stale one.
     not pinned to one core — measured ~300% CPU (~3 of 4 cores) and ~7.6 fps
     CPU / ~0.9 fps GPU. That headroom problem is what originally motivated
     this doc, e.g. Chromium crashing before its page even loaded when run
-    alongside detection. Whether that specific problem still reproduces at
-    the current ~100% baseline hasn't been retested.)*
+    alongside detection.)*
 - NCNN CPU thread-count scaling is poor, not linear (`python/detect.py`'s
   own bench note, 320px input, measured 2026-09-15): 1 thread = 189ms/frame
   at ~1.0 core; 3 threads = 127ms/frame at ~2.8 cores. `detect.py` defaults
