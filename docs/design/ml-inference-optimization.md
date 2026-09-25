@@ -44,17 +44,21 @@ transport work, which shares the same GPU/H.264-encoder facts.
   - **Result: the GPU path is consistently slower than CPU**, in every
     config tested so far — most recently 1.7 fps GPU vs. 9-10 fps CPU (see
     `docs/hardware.md`, "Known resource baseline", for the current numbers
-    and an earlier config's numbers for comparison). Likely due to lower
-    throughput: VideoCore GPUs have fewer ALUs for general-purpose compute
-    relative to other GPUs — the VC6 has 8 QPUs containing 2 ALUs each, for
-    a peak of 32 GFLOP/s at 500MHz
-    ([py-videocore6](https://github.com/Idein/py-videocore6)). The GPU code
-    path stayed in the codebase but disabled by default.
-    - CPU: 4 cores × 1.8GHz × 16 FLOP/cycle/core = 115.2 GFLOP/s (28.8 GFLOP/s
-      on one core) — [FLOP/cycle reference](https://en.wikipedia.org/wiki/Floating_point_operations_per_second#Floating-point_operations_per_clock_cycle_for_various_processors).
-      16 FLOP/cycle/core = 4 lanes × 2 FMA ops/lane × 2 SIMD pipelines/core.
-    - GPU: 500MHz × 2 slices × 4 QPU/slice × 4 physical cores/QPU × 2
-      ops/cycle = 32 GFLOP/s.
+    and an earlier config's numbers for comparison). Some hypotheses on why:
+    - Unsupported arithmetic subgroup ops may force layers that need them
+      (e.g. maxpool, softmax) either to fall back to a CPU implementation
+      mid-inference, or to run a less efficient implementation on the GPU.
+      The CPU-fallback case is the more costly one: even on an integrated
+      GPU sharing system RAM with the CPU, moving data between them still
+      needs cache/memory synchronization for every affected layer, not just
+      once per frame.
+      - We tried upgrading the Mesa driver to a version that supports
+        arithmetic subgroup ops — see below.
+    - Lower raw throughput: VideoCore GPUs have fewer ALUs for general-purpose
+      compute relative to other GPUs — the VC6 has 8 QPUs containing 2 ALUs
+      each, for a peak of 32 GFLOP/s at 500MHz. The GPU code path stayed in
+      the codebase but disabled by default. See `docs/hardware.md`, "Compute
+      capability limits", for detailed CPU and GPU performance estimates.
     - Preliminary evidence the GPU may still win on performance-per-watt
       despite being slower: `docs/hardware.md` has an early, not-yet-
       controlled temperature comparison (~54°C CPU vs. ~45°C GPU).
@@ -105,17 +109,22 @@ transport work, which shares the same GPU/H.264-encoder facts.
 
 ### Vision pipeline
 
+- **Already implemented:** use smaller input images, and crop to a square
+  rather than "letterboxing" (padding an oblong image to a square).
+  Letterboxing adds pixels that don't contribute to model outputs, and
+  inference scales roughly as `O(width * height)` in the input size — i.e.
+  `O(n^2)` for a square `n * n` crop. Currently done in software; see the
+  ISP-resize idea below for a possible further optimization.
 - Combine object detection (YOLOv8, already in use) on keyframes with
   lightweight object tracking between them (suggested by Brian):
   - Could increase effective frame rate.
   - Could also reduce CPU utilization at a constant frame rate (e.g. sleep
     between frames).
 - Idea, not yet started: resize/crop on the camera's own ISP instead of
-  `cv2.resize` in `camera.py`'s `preprocess()`. The motivation is reducing
-  back-and-forth data transfer between CPU and GPU, not raw CPU cost —
-  relevant specifically when running inference on the GPU path (Vulkan),
-  where the frame currently has to round-trip through CPU-side preprocessing
-  before it reaches GPU memory.
+  `cv2.resize` in `camera.py`'s `preprocess()`, to leverage the ISP's own
+  parallelism and reduce CPU↔GPU data transfer when running on the GPU path
+  (Vulkan). Performance gains are unconfirmed and may be small — worth
+  measuring before investing effort.
 - Idea, not yet started: request a smaller uncompressed resolution directly
   from the camera (UVC format negotiation) instead of always capturing at
   640×480 — the camera's max uncompressed resolution, see `docs/hardware.md`
@@ -135,7 +144,7 @@ Don't confuse this with `write_snapshot()` in `python/ipc.py`, which already
 exists on `main` — it was built independently, for the `/debug` page's
 camera-snapshot view (throttled, resized to 320px, JPEG quality 70), not for
 calibration data collection. It doesn't meet the goals below (minimal
-compression, no chroma subsampling) as-is.
+compression, minimal chroma subsampling) as-is.
 
 ### Goals
 
@@ -149,10 +158,12 @@ compression, no chroma subsampling) as-is.
 - How will we notify people near the camera that they're being recorded,
   and why? (e.g. a notice on the screen below the flower.)
 - How to store/compress the images:
-  - Goals: minimize CPU overhead; ideally lossless, no chroma subsampling
-    (4:4:4).
+  - Goals: minimize CPU overhead; ideally lossless, minimal chroma subsampling
+    (4:2:2).
   - Candidate formats:
-    - JPEG (4:4:4) — simpler, widely supported codec.
+    - JPEG (4:2:2) — simpler, widely supported codec. Note that the camera
+      already transmits images to the Pi as [YUY2](https://www.loc.gov/preservation/digital/formats/fdd/fdd000364.shtml),
+      which is inherently 4:2:2.
     - AVCI (H.264-in-HEIF) — could use the Pi's hardware encoder; may be
       4:2:0 only.
 - When to capture images, over a 24-hour period:
