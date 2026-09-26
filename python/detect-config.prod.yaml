@@ -1,0 +1,8 @@
+# Production config for the Pi's rcflower-detect systemd service (see
+# deploy/systemd/rcflower-detect.service). Only lists what differs from
+# detect-config.yaml's defaults; every other key still falls back to
+# detect.py's built-in Config defaults.
+
+model:
+  path: yolov8n_ncnn_model_224/model.ncnn.param
+  labels_path: yolov8n_ncnn_model_224/metadata.yaml

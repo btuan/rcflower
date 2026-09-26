@@ -3,47 +3,20 @@
 import argparse
 import time
 from pathlib import Path
-from types import SimpleNamespace
 
 import cv2
 import yaml
 
 from camera import LatestFrameGrabber, draw_detections, roi_from_fit
+from config import Config, build_config
 from ipc import build_state, post_state, utc_ts, write_snapshot, write_state
 from vision import Detector, load_export_imgsz, load_labels
 
-MODEL_PATH = Path(__file__).parent / "yolov8n_ncnn_model" / "model.ncnn.param"
-LABELS_PATH = Path(__file__).parent / "yolov8n_ncnn_model" / "metadata.yaml"
-STATE_PATH = Path(__file__).parent.parent / "state" / "detections.json"
-BACKEND_URL = "http://127.0.0.1:3000/api/detections"
-CONFIG_PATH = Path(__file__).parent / "detect.yaml"
-
-# Built-in fallback for every key a config file may omit. See detect.yaml for
-# what each key does; production overrides live in detect.prod.yaml, used by
-# deploy/systemd/rcflower-detect.service.
-DEFAULTS = {
-    "camera": 0,
-    "model": str(MODEL_PATH),
-    "labels": str(LABELS_PATH),
-    "conf": 0.4,
-    "iou": 0.45,
-    "classes": "person",
-    "width": 640,
-    "height": 480,
-    "use_vulkan": False,
-    "threads": 1,
-    "input_size": None,
-    "fit": "crop",
-    "state_path": str(STATE_PATH),
-    "snapshot_path": "",
-    "snapshot_interval": 1.0,
-    "backend_url": BACKEND_URL,
-    "headless": False,
-}
+CONFIG_PATH = Path(__file__).parent / "detect-config.yaml"
 FIT_CHOICES = ("crop", "squish", "letterbox")
 
 
-def parse_args() -> SimpleNamespace:
+def parse_args() -> Config:
     """Parse --config and load/validate detector options from its YAML."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -58,38 +31,40 @@ def parse_args() -> SimpleNamespace:
     if not cli_args.config.exists():
         raise FileNotFoundError(f"Config file not found: {cli_args.config}")
     loaded = yaml.safe_load(cli_args.config.read_text()) or {}
-    unknown = set(loaded) - set(DEFAULTS)
-    if unknown:
+    config = build_config(Config, loaded)
+
+    if config.model.fit not in FIT_CHOICES:
         raise ValueError(
-            f"Unknown config key(s) in {cli_args.config}: {', '.join(sorted(unknown))}"
+            f"model.fit must be one of {FIT_CHOICES}, got {config.model.fit!r}"
         )
-    args = SimpleNamespace(**{**DEFAULTS, **loaded})
-    args.model = Path(args.model)
-    args.labels = Path(args.labels)
-    args.state_path = Path(args.state_path)
+    if not isinstance(config.detection.classes, list):
+        raise TypeError(
+            "detection.classes must be a list, got "
+            f"{type(config.detection.classes).__name__}"
+        )
 
-    if args.fit not in FIT_CHOICES:
-        raise ValueError(f"fit must be one of {FIT_CHOICES}, got {args.fit!r}")
-
-    exported_size = load_export_imgsz(args.labels)
-    if args.input_size is None:
-        args.input_size = exported_size or 320
-    if args.input_size % 32 != 0:
-        raise ValueError(f"input_size must be a multiple of 32, got {args.input_size}")
-    if exported_size is not None and args.input_size != exported_size:
+    exported_size = load_export_imgsz(config.model.labels_path)
+    if config.model.input_size is None:
+        config.model.input_size = exported_size or 320
+    if config.model.input_size % 32 != 0:
         raise ValueError(
-            f"input_size {args.input_size} does not match the model's exported imgsz "
-            f"{exported_size} ({args.labels}). The NCNN export bakes its anchor grid for the "
-            "export size; re-export with dev/export_model.py --imgsz N instead."
+            f"model.input_size must be a multiple of 32, got {config.model.input_size}"
         )
-    return args
+    if exported_size is not None and config.model.input_size != exported_size:
+        raise ValueError(
+            f"model.input_size {config.model.input_size} does not match the model's exported "
+            f"imgsz {exported_size} ({config.model.labels_path}). The NCNN export bakes its "
+            "anchor grid for the export size; re-export with dev/export_model.py --imgsz N "
+            "instead."
+        )
+    return config
 
 
-def class_ids_for(labels: list[str], classes: str) -> set[int] | None:
+def class_ids_for(labels: list[str], classes: list[str]) -> set[int] | None:
     """Return the requested label IDs, or None when all classes are requested."""
-    if not classes.strip():
+    wanted = {label.strip() for label in classes if label.strip()}
+    if not wanted:
         return None
-    wanted = {label.strip() for label in classes.split(",") if label.strip()}
     unknown = wanted - set(labels)
     if unknown:
         raise ValueError(f"Unknown class label(s): {', '.join(sorted(unknown))}")
@@ -98,22 +73,26 @@ def class_ids_for(labels: list[str], classes: str) -> set[int] | None:
 
 def main() -> None:
     """Capture frames, run inference, and publish state until interrupted."""
-    args = parse_args()
-    labels = load_labels(args.labels)
-    class_ids_filter = class_ids_for(labels, args.classes)
-    detector = Detector(args.model, args.use_vulkan, args.threads)
+    config = parse_args()
+    labels = load_labels(config.model.labels_path)
+    class_ids_filter = class_ids_for(labels, config.detection.classes)
+    detector = Detector(
+        config.model.path, config.model.use_vulkan, config.model.cpu_threads
+    )
 
-    cap = cv2.VideoCapture(args.camera)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
+    cap = cv2.VideoCapture(config.camera.source)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.camera.width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.camera.height)
     if not cap.isOpened():
-        raise RuntimeError(f"Could not open camera index {args.camera}")
+        raise RuntimeError(f"Could not open camera index {config.camera.source}")
 
     grabber = LatestFrameGrabber(cap).start()
     print(
-        f"[{utc_ts()}] [detect] started: model={args.model}, labels={args.labels}, "
-        f"camera={args.camera}, backend={args.backend_url or 'disabled'}, "
-        f"use_vulkan={args.use_vulkan:1}, input_size={args.input_size}, fit={args.fit}"
+        f"[{utc_ts()}] [detect] started: model={config.model.path}, "
+        f"labels={config.model.labels_path}, camera={config.camera.source}, "
+        f"backend={config.output.backend_url or 'disabled'}, "
+        f"use_vulkan={config.model.use_vulkan:1}, input_size={config.model.input_size}, "
+        f"fit={config.model.fit}"
     )
 
     fps = 0.0
@@ -130,7 +109,12 @@ def main() -> None:
             infer_started_at = time.time()  # captured_at -> here is frame age.
 
             boxes, confidences, class_ids, fit = detector.infer(
-                frame, args.input_size, args.fit, args.conf, args.iou, class_ids_filter
+                frame,
+                config.model.input_size,
+                config.model.fit,
+                config.detection.confidence_threshold,
+                config.detection.nms_iou_threshold,
+                class_ids_filter,
             )
             inferred_at = time.time()
             frame_height, frame_width = frame.shape[:2]
@@ -143,13 +127,19 @@ def main() -> None:
                 infer_started_at,
                 inferred_at,
                 frame_size=(frame_width, frame_height),
-                roi=roi_from_fit(fit, frame_width, frame_height, args.input_size),
+                roi=roi_from_fit(
+                    fit, frame_width, frame_height, config.model.input_size
+                ),
             )
-            write_state(args.state_path, state)
-            if args.backend_url:
-                post_state(args.backend_url, state)
-            if args.snapshot_path:
-                write_snapshot(Path(args.snapshot_path), frame, args.snapshot_interval)
+            write_state(config.output.state_path, state)
+            if config.output.backend_url:
+                post_state(config.output.backend_url, state)
+            if config.output.snapshot_path:
+                write_snapshot(
+                    Path(config.output.snapshot_path),
+                    frame,
+                    config.output.snapshot_interval,
+                )
 
             now = time.time()
             fps = 0.9 * fps + 0.1 * (1.0 / max(now - previous_time, 1e-6))
@@ -159,11 +149,12 @@ def main() -> None:
             if now - last_diagnostic_time >= 1.0:
                 print(
                     f"[{utc_ts()}] [detect] fps={fps:.1f} detections={len(state['detections'])} "
-                    f"backend={args.backend_url or 'disabled'} use_vulkan={args.use_vulkan:1}"
+                    f"backend={config.output.backend_url or 'disabled'} "
+                    f"use_vulkan={config.model.use_vulkan:1}"
                 )
                 last_diagnostic_time = now
 
-            if not args.headless:
+            if not config.headless:
                 draw_detections(frame, boxes, confidences, class_ids, labels)
                 cv2.putText(
                     frame,
@@ -180,7 +171,7 @@ def main() -> None:
                     break
     finally:
         cap.release()
-        if not args.headless:
+        if not config.headless:
             cv2.destroyAllWindows()
 
 
