@@ -3,7 +3,7 @@
 import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TypeVar
+from typing import Any
 
 import yaml
 
@@ -84,10 +84,7 @@ class Config:
     headless: bool = True
 
 
-T = TypeVar("T")
-
-
-def build_config(cls: type[T], data: dict, path_ctx: str = "") -> T:
+def build_config(cls: type[Any], data: dict, path_ctx: str = "") -> Any:
     """Recursively build a (possibly nested) dataclass from a YAML dict.
 
     A key missing at any level keeps that field's (or subtree's) dataclass default, so a
@@ -104,9 +101,10 @@ def build_config(cls: type[T], data: dict, path_ctx: str = "") -> T:
         if f.name not in data:
             continue
         value = data[f.name]
-        if dataclasses.is_dataclass(f.type):
-            value = build_config(f.type, value or {}, path_ctx=f.name)
-        elif f.type is Path and value is not None:
+        field_type = f.type
+        if isinstance(field_type, type) and dataclasses.is_dataclass(field_type):
+            value = build_config(field_type, value or {}, path_ctx=f.name)
+        elif field_type is Path and value is not None:
             value = Path(value)
         kwargs[f.name] = value
     return cls(**kwargs)
@@ -117,7 +115,7 @@ def load_config(path: Path) -> Config:
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
     loaded = yaml.safe_load(path.read_text()) or {}
-    config = build_config(Config, loaded)
+    config: Config = build_config(Config, loaded)
 
     if config.model.fit not in FIT_CHOICES:
         raise ValueError(
