@@ -3,8 +3,10 @@
 import argparse
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import cv2
+import yaml
 
 from camera import LatestFrameGrabber, draw_detections, roi_from_fit
 from ipc import build_state, post_state, utc_ts, write_snapshot, write_state
@@ -13,107 +15,70 @@ from vision import Detector, load_export_imgsz, load_labels
 MODEL_PATH = Path(__file__).parent / "yolov8n_ncnn_model" / "model.ncnn.param"
 LABELS_PATH = Path(__file__).parent / "yolov8n_ncnn_model" / "metadata.yaml"
 STATE_PATH = Path(__file__).parent.parent / "state" / "detections.json"
-SNAPSHOT_PATH = Path(__file__).parent.parent / "state" / "frame.jpg"
 BACKEND_URL = "http://127.0.0.1:3000/api/detections"
+CONFIG_PATH = Path(__file__).parent / "detect.yaml"
+
+# Built-in fallback for every key a config file may omit. See detect.yaml for
+# what each key does; production overrides live in detect.prod.yaml, used by
+# deploy/systemd/rcflower-detect.service.
+DEFAULTS = {
+    "camera": 0,
+    "model": str(MODEL_PATH),
+    "labels": str(LABELS_PATH),
+    "conf": 0.4,
+    "iou": 0.45,
+    "classes": "person",
+    "width": 640,
+    "height": 480,
+    "use_vulkan": False,
+    "threads": 1,
+    "input_size": None,
+    "fit": "crop",
+    "state_path": str(STATE_PATH),
+    "snapshot_path": "",
+    "snapshot_interval": 1.0,
+    "backend_url": BACKEND_URL,
+    "headless": False,
+}
+FIT_CHOICES = ("crop", "squish", "letterbox")
 
 
-def parse_args() -> argparse.Namespace:
-    """Parse and validate detector command-line options."""
+def parse_args() -> SimpleNamespace:
+    """Parse --config and load/validate detector options from its YAML."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--camera", type=int, default=0, help="Webcam device index")
     parser.add_argument(
-        "--model",
+        "--config",
         type=Path,
-        default=MODEL_PATH,
-        help="Path to the NCNN .param export (default: yolov8n_ncnn_model/model.ncnn.param)",
+        default=CONFIG_PATH,
+        help=f"Path to a YAML config file (default: {CONFIG_PATH.name}). A config only needs "
+        "to list the keys it overrides -- anything else falls back to the built-in default.",
     )
-    parser.add_argument(
-        "--labels",
-        type=Path,
-        default=LABELS_PATH,
-        help="Path to the model metadata YAML (default: yolov8n_ncnn_model/metadata.yaml)",
-    )
-    parser.add_argument("--conf", type=float, default=0.4, help="Confidence threshold")
-    parser.add_argument("--iou", type=float, default=0.45, help="NMS IoU threshold")
-    parser.add_argument(
-        "--classes",
-        type=str,
-        default="person",
-        help="Comma-separated COCO labels to detect (see models/coco.names). "
-        "Empty string detects all 80 classes.",
-    )
-    parser.add_argument("--width", type=int, default=640, help="Capture width")
-    parser.add_argument("--height", type=int, default=480, help="Capture height")
-    parser.add_argument(
-        "--use-vulkan", action="store_true", help="Use Vulkan for GPU inference"
-    )
-    parser.add_argument(
-        "--threads",
-        type=int,
-        default=1,
-        help="NCNN CPU thread count. Pi 4B bench (320px, 2026-09-15): 1 thread=189ms/frame at 1.0 core, 3 threads=127ms at 2.8 cores -- threads scale poorly, so default to 1 and leave cores for the UI.",
-    )
-    parser.add_argument(
-        "--input-size",
-        type=int,
-        default=None,
-        help="Model input size in pixels (square). Defaults to the size the NCNN model was "
-        "exported at (metadata.yaml imgsz). The exported graph bakes its anchor grid for that "
-        "size, so any other value produces garbage boxes -- to change it, re-export the model "
-        "with dev/export_model.py --imgsz N and point --model/--labels at it.",
-    )
-    parser.add_argument(
-        "--fit",
-        type=str,
-        default="crop",
-        choices=["crop", "squish", "letterbox"],
-        help="Strategy for fitting the camera frame into --input-size: "
-        "crop (center-crop to a square, then resize), squish (resize directly, ignoring "
-        "aspect ratio), or letterbox (resize preserving aspect, pad with gray).",
-    )
-    parser.add_argument(
-        "--state-path",
-        type=Path,
-        default=STATE_PATH,
-        help="Detection state JSON output path",
-    )
-    parser.add_argument(
-        "--snapshot-path",
-        type=str,
-        default="",
-        help="JPEG snapshot output path for debugging, resized to 320px wide. Off by default: "
-        "the Pi is reachable over tailscale funnel and anything under state/ that the backend "
-        f"serves would be public. e.g. {SNAPSHOT_PATH}",
-    )
-    parser.add_argument(
-        "--snapshot-interval",
-        type=float,
-        default=1.0,
-        help="Minimum seconds between snapshot writes.",
-    )
-    parser.add_argument(
-        "--backend-url",
-        type=str,
-        default=BACKEND_URL,
-        help="Backend URL to POST detection state to. Set to '' to disable.",
-    )
-    parser.add_argument(
-        "--headless",
-        action="store_true",
-        help="No GUI window -- just run detection and write --state-path",
-    )
-    args = parser.parse_args()
+    cli_args = parser.parse_args()
+
+    if not cli_args.config.exists():
+        raise FileNotFoundError(f"Config file not found: {cli_args.config}")
+    loaded = yaml.safe_load(cli_args.config.read_text()) or {}
+    unknown = set(loaded) - set(DEFAULTS)
+    if unknown:
+        raise ValueError(
+            f"Unknown config key(s) in {cli_args.config}: {', '.join(sorted(unknown))}"
+        )
+    args = SimpleNamespace(**{**DEFAULTS, **loaded})
+    args.model = Path(args.model)
+    args.labels = Path(args.labels)
+    args.state_path = Path(args.state_path)
+
+    if args.fit not in FIT_CHOICES:
+        raise ValueError(f"fit must be one of {FIT_CHOICES}, got {args.fit!r}")
 
     exported_size = load_export_imgsz(args.labels)
     if args.input_size is None:
         args.input_size = exported_size or 320
     if args.input_size % 32 != 0:
-        raise ValueError(
-            f"--input-size must be a multiple of 32, got {args.input_size}"
-        )
+        raise ValueError(f"input_size must be a multiple of 32, got {args.input_size}")
     if exported_size is not None and args.input_size != exported_size:
         raise ValueError(
-            f"--input-size {args.input_size} does not match the model's exported imgsz "
+            f"input_size {args.input_size} does not match the model's exported imgsz "
             f"{exported_size} ({args.labels}). The NCNN export bakes its anchor grid for the "
             "export size; re-export with dev/export_model.py --imgsz N instead."
         )
