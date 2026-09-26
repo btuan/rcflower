@@ -5,10 +5,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypeVar
 
+import yaml
+
+from vision import load_export_imgsz
+
 MODEL_PATH = Path(__file__).parent / "yolov8n_ncnn_model" / "model.ncnn.param"
 LABELS_PATH = Path(__file__).parent / "yolov8n_ncnn_model" / "metadata.yaml"
 STATE_PATH = Path(__file__).parent.parent / "state" / "detections.json"
 BACKEND_URL = "http://127.0.0.1:3000/api/detections"
+FIT_CHOICES = ("crop", "squish", "letterbox")
 
 
 @dataclass
@@ -105,3 +110,37 @@ def build_config(cls: type[T], data: dict, path_ctx: str = "") -> T:
             value = Path(value)
         kwargs[f.name] = value
     return cls(**kwargs)
+
+
+def load_config(path: Path) -> Config:
+    """Load, build, and validate a Config from a YAML file at ``path``."""
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found: {path}")
+    loaded = yaml.safe_load(path.read_text()) or {}
+    config = build_config(Config, loaded)
+
+    if config.model.fit not in FIT_CHOICES:
+        raise ValueError(
+            f"model.fit must be one of {FIT_CHOICES}, got {config.model.fit!r}"
+        )
+    if not isinstance(config.detection.classes, list):
+        raise TypeError(
+            "detection.classes must be a list, got "
+            f"{type(config.detection.classes).__name__}"
+        )
+
+    exported_size = load_export_imgsz(config.model.labels_path)
+    if config.model.input_size is None:
+        config.model.input_size = exported_size or 320
+    if config.model.input_size % 32 != 0:
+        raise ValueError(
+            f"model.input_size must be a multiple of 32, got {config.model.input_size}"
+        )
+    if exported_size is not None and config.model.input_size != exported_size:
+        raise ValueError(
+            f"model.input_size {config.model.input_size} does not match the model's exported "
+            f"imgsz {exported_size} ({config.model.labels_path}). The NCNN export bakes its "
+            "anchor grid for the export size; re-export with dev/export_model.py --imgsz N "
+            "instead."
+        )
+    return config

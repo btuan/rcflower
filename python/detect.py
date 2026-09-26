@@ -5,19 +5,17 @@ import time
 from pathlib import Path
 
 import cv2
-import yaml
 
 from camera import LatestFrameGrabber, draw_detections, roi_from_fit
-from config import Config, build_config
+from config import load_config
 from ipc import build_state, post_state, utc_ts, write_snapshot, write_state
-from vision import Detector, load_export_imgsz, load_labels
+from vision import Detector, load_labels
 
 CONFIG_PATH = Path(__file__).parent / "detect-config.yaml"
-FIT_CHOICES = ("crop", "squish", "letterbox")
 
 
-def parse_args() -> Config:
-    """Parse --config and load/validate detector options from its YAML."""
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--config",
@@ -26,38 +24,7 @@ def parse_args() -> Config:
         help=f"Path to a YAML config file (default: {CONFIG_PATH.name}). A config only needs "
         "to list the keys it overrides -- anything else falls back to the built-in default.",
     )
-    cli_args = parser.parse_args()
-
-    if not cli_args.config.exists():
-        raise FileNotFoundError(f"Config file not found: {cli_args.config}")
-    loaded = yaml.safe_load(cli_args.config.read_text()) or {}
-    config = build_config(Config, loaded)
-
-    if config.model.fit not in FIT_CHOICES:
-        raise ValueError(
-            f"model.fit must be one of {FIT_CHOICES}, got {config.model.fit!r}"
-        )
-    if not isinstance(config.detection.classes, list):
-        raise TypeError(
-            "detection.classes must be a list, got "
-            f"{type(config.detection.classes).__name__}"
-        )
-
-    exported_size = load_export_imgsz(config.model.labels_path)
-    if config.model.input_size is None:
-        config.model.input_size = exported_size or 320
-    if config.model.input_size % 32 != 0:
-        raise ValueError(
-            f"model.input_size must be a multiple of 32, got {config.model.input_size}"
-        )
-    if exported_size is not None and config.model.input_size != exported_size:
-        raise ValueError(
-            f"model.input_size {config.model.input_size} does not match the model's exported "
-            f"imgsz {exported_size} ({config.model.labels_path}). The NCNN export bakes its "
-            "anchor grid for the export size; re-export with dev/export_model.py --imgsz N "
-            "instead."
-        )
-    return config
+    return parser.parse_args()
 
 
 def class_ids_for(labels: list[str], classes: list[str]) -> set[int] | None:
@@ -73,7 +40,9 @@ def class_ids_for(labels: list[str], classes: list[str]) -> set[int] | None:
 
 def main() -> None:
     """Capture frames, run inference, and publish state until interrupted."""
-    config = parse_args()
+    args = parse_args()
+    config = load_config(args.config)
+    assert config.model.input_size is not None  # load_config always resolves this
     labels = load_labels(config.model.labels_path)
     class_ids_filter = class_ids_for(labels, config.detection.classes)
     detector = Detector(
