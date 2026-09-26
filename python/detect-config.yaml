@@ -1,0 +1,61 @@
+# Default detect.py configuration -- used when detect.py is run with no
+# --config flag. Every key below is optional; an omitted key falls back to
+# the built-in default in Config (detect.py). Paths are resolved relative
+# to the working directory (run from python/, as the README describes).
+#
+# The Pi's systemd service points --config at detect-config.prod.yaml
+# instead, which only lists what differs from this file.
+
+camera:
+  source: 0 # Webcam device index
+  width: 640 # Capture width
+  height: 480 # Capture height
+
+model:
+  path: yolov8n_ncnn_model/model.ncnn.param # Path to the NCNN .param export
+  labels_path: yolov8n_ncnn_model/metadata.yaml # Path to the model metadata YAML
+
+  # Model input size in pixels (square). null defaults to the size the NCNN
+  # model was exported at (metadata.yaml imgsz). The exported graph bakes its
+  # anchor grid for that size, so any other value produces garbage boxes --
+  # to change it, re-export the model with dev/export_model.py --imgsz N and
+  # point path/labels_path at the new export.
+  input_size: null
+
+  # Strategy for fitting the camera frame into input_size: crop (center-crop
+  # to a square, then resize), squish (resize directly, ignoring aspect
+  # ratio), or letterbox (resize preserving aspect, pad with gray).
+  fit: crop
+
+  use_vulkan: false # Use Vulkan for GPU inference
+
+  # NCNN CPU thread count. Pi 4B bench (320px, 2026-09-15): 1 thread=189ms/frame
+  # at 1.0 core, 3 threads=127ms at 2.8 cores -- threads scale poorly, so
+  # default to 1 and leave cores for the UI.
+  cpu_threads: 1
+
+detection:
+  confidence_threshold: 0.4 # Confidence threshold
+  nms_iou_threshold: 0.45 # NMS IoU threshold
+
+  # COCO labels to detect (see models/coco.names). Empty list detects all 80
+  # classes.
+  classes:
+    - person
+
+output:
+  state_path: ../state/detections.json # Detection state JSON output path
+
+  # JPEG snapshot output path for debugging, resized to 320px wide. Off by
+  # default: the Pi is reachable over tailscale funnel and anything under
+  # state/ that the backend serves would be public. e.g. ../state/frame.jpg
+  snapshot_path: ""
+  snapshot_interval: 1.0 # Minimum seconds between snapshot writes
+
+  backend_url: http://127.0.0.1:3000/api/detections # POST target; "" disables it
+
+# No GUI window -- just run detection and write output.state_path (Ctrl+C to
+# quit). True by default: the web-based /debug view has all but obsoleted
+# the GUI window, which mainly remains for ad hoc local debugging. Set to
+# false to open a window (press q to quit) when you need to see the feed.
+headless: true

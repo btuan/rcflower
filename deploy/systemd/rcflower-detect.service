@@ -13,7 +13,7 @@ User=pi
 WorkingDirectory=/home/pi/code/rcflower/python
 Environment=PATH=/home/pi/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/pi/.local/bin/uv run python -u detect.py --headless --camera 0 --classes person --model yolov8n_ncnn_model_224/model.ncnn.param --labels yolov8n_ncnn_model_224/metadata.yaml
+ExecStart=/home/pi/.local/bin/uv run python -u detect.py --config detect-config.prod.yaml
 Restart=on-failure
 RestartSec=3
 # POSTs to the backend are best-effort (logs + continues on failure), so this

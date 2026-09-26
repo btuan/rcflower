@@ -25,17 +25,30 @@ uv run python detect.py
 uv run python detect.py
 ```
 
-Press `q` in the video window to quit. Useful flags:
+Runs headless by default (Ctrl+C to quit) -- set `headless: false` in the
+config to open a video window instead (press `q` to quit).
 
-- `--camera N` -- webcam device index (default 0)
-- `--conf 0.4` -- confidence threshold
-- `--classes person` -- comma-separated COCO labels to detect (default `person`;
-  use `--classes ''` to detect all 80 COCO classes)
-- `--width` / `--height` -- capture resolution
-- `--backend-url` -- where to POST detection state (default
-  `http://127.0.0.1:3000/api/detections`); set to `''` to disable
-- `--headless` -- no GUI window; runs detection and writes `--state-path`
-  (Ctrl+C to quit). Useful on the Pi without a display.
+Options live in a YAML config file, not CLI flags -- `detect.py` takes a
+single `--config path/to/file.yaml` argument (default: `detect-config.yaml`,
+next to `detect.py`). A config only needs to list the keys it wants to
+override; anything else falls back to `detect.py`'s built-in defaults. See
+`detect-config.yaml` for the full, commented list of keys, grouped as:
+
+- `camera` -- `source` (webcam device index, default `0`), `width`, `height`
+- `model` -- the NCNN export (`path`, `labels_path`), `input_size`, `fit`,
+  and NCNN runtime knobs (`use_vulkan`, `cpu_threads`)
+- `detection` -- `confidence_threshold`, `nms_iou_threshold`, and `classes`
+  (a list of COCO labels to detect; default `[person]`, empty list detects
+  all 80 COCO classes)
+- `output` -- `state_path`, `snapshot_path`, `snapshot_interval`,
+  `backend_url` (where to POST detection state; default
+  `http://127.0.0.1:3000/api/detections`, set to `""` to disable)
+- `headless` -- top-level, no GUI window (default `true`)
+
+The deployed service passes `--config detect-config.prod.yaml` (see
+`deploy/systemd/rcflower-detect.service`), which overrides only what differs
+from `detect-config.yaml` -- currently just `model.path` and
+`model.labels_path`, to point at the `_224` export.
 
 ## Detection state
 
@@ -47,9 +60,9 @@ Every frame, `detect.py` builds a state payload:
 
 `box` is `[x1, y1, x2, y2]` in source-frame pixel coordinates. The payload is:
 
-- POSTed to `--backend-url` (`POST /api/detections`) on a best-effort basis.
-- Atomically written to `--state-path` (default `../state/detections.json`) for
-  local debugging without a backend.
+- POSTed to `output.backend_url` (`POST /api/detections`) on a best-effort basis.
+- Atomically written to `output.state_path` (default `../state/detections.json`)
+  for local debugging without a backend.
 
 The two are independent, so the backend side can be tested without a camera or
 model:
@@ -68,7 +81,10 @@ privacy.
 
 ## Files
 
-- `detect.py` -- command-line parsing and the capture-to-publication loop
+- `detect.py` -- CLI/YAML config loading and the capture-to-publication loop
+- `config.py` -- the nested config dataclasses and their generic YAML loader
+- `detect-config.yaml` / `detect-config.prod.yaml` -- default and production
+  `--config` files
 - `camera.py` -- camera capture, preprocessing, display, and frame geometry
 - `vision.py` -- NCNN model inference, labels, and detection postprocessing
 - `ipc.py` -- detection-state and snapshot publication to the web-serving process
@@ -99,5 +115,6 @@ export targets the NCNN runtime, so installation is based on the `ncnn` Python
 package and the selected model directory. The deployed service currently uses
 `yolov8n_ncnn_model_224/`.
 
-To tune throughput, start by lowering capture resolution (`--width 320 --height
-240`) before trying a smaller model or disabling Vulkan compute on the Pi.
+To tune throughput, start by lowering capture resolution (`camera.width: 320`,
+`camera.height: 240` in the config) before trying a smaller model or
+disabling Vulkan compute on the Pi.

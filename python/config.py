@@ -1,0 +1,144 @@
+"""Nested config dataclasses for detect.py, and the generic YAML loader for them."""
+
+import dataclasses
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from vision import load_export_imgsz
+
+MODEL_PATH = Path(__file__).parent / "yolov8n_ncnn_model" / "model.ncnn.param"
+LABELS_PATH = Path(__file__).parent / "yolov8n_ncnn_model" / "metadata.yaml"
+STATE_PATH = Path(__file__).parent.parent / "state" / "detections.json"
+BACKEND_URL = "http://127.0.0.1:3000/api/detections"
+FIT_CHOICES = ("crop", "squish", "letterbox")
+
+
+@dataclass
+class CameraConfig:
+    source: int = 0  # Webcam device index
+    width: int = 640  # Capture width
+    height: int = 480  # Capture height
+
+
+@dataclass
+class ModelConfig:
+    path: Path = MODEL_PATH  # NCNN .param export
+    labels_path: Path = LABELS_PATH  # Model metadata YAML (export imgsz, class names)
+
+    # Model input size in pixels (square). None defaults to the size the NCNN model was
+    # exported at (metadata.yaml imgsz). The exported graph bakes its anchor grid for that
+    # size, so any other value produces garbage boxes -- to change it, re-export the model
+    # with dev/export_model.py --imgsz N and point path/labels_path at it.
+    input_size: int | None = None
+
+    # Strategy for fitting the camera frame into input_size: crop (center-crop to a square,
+    # then resize), squish (resize directly, ignoring aspect ratio), or letterbox (resize
+    # preserving aspect, pad with gray).
+    fit: str = "crop"
+
+    use_vulkan: bool = False  # Use Vulkan for GPU inference
+
+    # NCNN CPU thread count. Pi 4B bench (320px, 2026-09-15): 1 thread=189ms/frame at 1.0
+    # core, 3 threads=127ms at 2.8 cores -- threads scale poorly, so default to 1 and leave
+    # cores for the UI.
+    cpu_threads: int = 1
+
+
+@dataclass
+class DetectionConfig:
+    confidence_threshold: float = 0.4
+    nms_iou_threshold: float = 0.45
+
+    # COCO labels to detect (see models/coco.names). Empty list detects all 80 classes.
+    classes: list[str] = field(default_factory=lambda: ["person"])
+
+
+@dataclass
+class OutputConfig:
+    state_path: Path = STATE_PATH  # Detection state JSON output path
+
+    # JPEG snapshot output path for debugging, resized to 320px wide. Off by default: the Pi
+    # is reachable over tailscale funnel and anything under state/ that the backend serves
+    # would be public.
+    snapshot_path: str = ""
+    snapshot_interval: float = 1.0  # Minimum seconds between snapshot writes
+
+    backend_url: str = BACKEND_URL  # POST target for detection state; "" disables it
+
+
+@dataclass
+class Config:
+    """Detector configuration, loaded from --config's YAML. See detect-config.yaml."""
+
+    camera: CameraConfig = field(default_factory=CameraConfig)
+    model: ModelConfig = field(default_factory=ModelConfig)
+    detection: DetectionConfig = field(default_factory=DetectionConfig)
+    output: OutputConfig = field(default_factory=OutputConfig)
+
+    # No GUI window -- just run detection and write output.state_path (Ctrl+C to quit).
+    # True by default: the web-based /debug view has all but obsoleted the GUI window, which
+    # mainly remains for ad hoc local debugging.
+    headless: bool = True
+
+
+def build_config(cls: type[Any], data: dict, path_ctx: str = "") -> Any:
+    """Recursively build a (possibly nested) dataclass from a YAML dict.
+
+    A key missing at any level keeps that field's (or subtree's) dataclass default, so a
+    config file only needs to list what it overrides.
+    """
+    field_names = {f.name for f in dataclasses.fields(cls)}
+    unknown = set(data) - field_names
+    if unknown:
+        where = f" under '{path_ctx}'" if path_ctx else ""
+        raise ValueError(f"Unknown config key(s){where}: {', '.join(sorted(unknown))}")
+
+    kwargs = {}
+    for f in dataclasses.fields(cls):
+        if f.name not in data:
+            continue
+        value = data[f.name]
+        field_type = f.type
+        if isinstance(field_type, type) and dataclasses.is_dataclass(field_type):
+            value = build_config(field_type, value or {}, path_ctx=f.name)
+        elif field_type is Path and value is not None:
+            value = Path(value)
+        kwargs[f.name] = value
+    return cls(**kwargs)
+
+
+def load_config(path: Path) -> Config:
+    """Load, build, and validate a Config from a YAML file at ``path``."""
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found: {path}")
+    loaded = yaml.safe_load(path.read_text()) or {}
+    config: Config = build_config(Config, loaded)
+
+    if config.model.fit not in FIT_CHOICES:
+        raise ValueError(
+            f"model.fit must be one of {FIT_CHOICES}, got {config.model.fit!r}"
+        )
+    if not isinstance(config.detection.classes, list):
+        raise TypeError(
+            "detection.classes must be a list, got "
+            f"{type(config.detection.classes).__name__}"
+        )
+
+    exported_size = load_export_imgsz(config.model.labels_path)
+    if config.model.input_size is None:
+        config.model.input_size = exported_size or 320
+    if config.model.input_size % 32 != 0:
+        raise ValueError(
+            f"model.input_size must be a multiple of 32, got {config.model.input_size}"
+        )
+    if exported_size is not None and config.model.input_size != exported_size:
+        raise ValueError(
+            f"model.input_size {config.model.input_size} does not match the model's exported "
+            f"imgsz {exported_size} ({config.model.labels_path}). The NCNN export bakes its "
+            "anchor grid for the export size; re-export with dev/export_model.py --imgsz N "
+            "instead."
+        )
+    return config

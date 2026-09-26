@@ -7,124 +7,31 @@ from pathlib import Path
 import cv2
 
 from camera import LatestFrameGrabber, draw_detections, roi_from_fit
+from config import load_config
 from ipc import build_state, post_state, utc_ts, write_snapshot, write_state
-from vision import Detector, load_export_imgsz, load_labels
+from vision import Detector, load_labels
 
-MODEL_PATH = Path(__file__).parent / "yolov8n_ncnn_model" / "model.ncnn.param"
-LABELS_PATH = Path(__file__).parent / "yolov8n_ncnn_model" / "metadata.yaml"
-STATE_PATH = Path(__file__).parent.parent / "state" / "detections.json"
-SNAPSHOT_PATH = Path(__file__).parent.parent / "state" / "frame.jpg"
-BACKEND_URL = "http://127.0.0.1:3000/api/detections"
+CONFIG_PATH = Path(__file__).parent / "detect-config.yaml"
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse and validate detector command-line options."""
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--camera", type=int, default=0, help="Webcam device index")
     parser.add_argument(
-        "--model",
+        "--config",
         type=Path,
-        default=MODEL_PATH,
-        help="Path to the NCNN .param export (default: yolov8n_ncnn_model/model.ncnn.param)",
+        default=CONFIG_PATH,
+        help=f"Path to a YAML config file (default: {CONFIG_PATH.name}). A config only needs "
+        "to list the keys it overrides -- anything else falls back to the built-in default.",
     )
-    parser.add_argument(
-        "--labels",
-        type=Path,
-        default=LABELS_PATH,
-        help="Path to the model metadata YAML (default: yolov8n_ncnn_model/metadata.yaml)",
-    )
-    parser.add_argument("--conf", type=float, default=0.4, help="Confidence threshold")
-    parser.add_argument("--iou", type=float, default=0.45, help="NMS IoU threshold")
-    parser.add_argument(
-        "--classes",
-        type=str,
-        default="person",
-        help="Comma-separated COCO labels to detect (see models/coco.names). "
-        "Empty string detects all 80 classes.",
-    )
-    parser.add_argument("--width", type=int, default=640, help="Capture width")
-    parser.add_argument("--height", type=int, default=480, help="Capture height")
-    parser.add_argument(
-        "--use-vulkan", action="store_true", help="Use Vulkan for GPU inference"
-    )
-    parser.add_argument(
-        "--threads",
-        type=int,
-        default=1,
-        help="NCNN CPU thread count. Pi 4B bench (320px, 2026-09-15): 1 thread=189ms/frame at 1.0 core, 3 threads=127ms at 2.8 cores -- threads scale poorly, so default to 1 and leave cores for the UI.",
-    )
-    parser.add_argument(
-        "--input-size",
-        type=int,
-        default=None,
-        help="Model input size in pixels (square). Defaults to the size the NCNN model was "
-        "exported at (metadata.yaml imgsz). The exported graph bakes its anchor grid for that "
-        "size, so any other value produces garbage boxes -- to change it, re-export the model "
-        "with dev/export_model.py --imgsz N and point --model/--labels at it.",
-    )
-    parser.add_argument(
-        "--fit",
-        type=str,
-        default="crop",
-        choices=["crop", "squish", "letterbox"],
-        help="Strategy for fitting the camera frame into --input-size: "
-        "crop (center-crop to a square, then resize), squish (resize directly, ignoring "
-        "aspect ratio), or letterbox (resize preserving aspect, pad with gray).",
-    )
-    parser.add_argument(
-        "--state-path",
-        type=Path,
-        default=STATE_PATH,
-        help="Detection state JSON output path",
-    )
-    parser.add_argument(
-        "--snapshot-path",
-        type=str,
-        default="",
-        help="JPEG snapshot output path for debugging, resized to 320px wide. Off by default: "
-        "the Pi is reachable over tailscale funnel and anything under state/ that the backend "
-        f"serves would be public. e.g. {SNAPSHOT_PATH}",
-    )
-    parser.add_argument(
-        "--snapshot-interval",
-        type=float,
-        default=1.0,
-        help="Minimum seconds between snapshot writes.",
-    )
-    parser.add_argument(
-        "--backend-url",
-        type=str,
-        default=BACKEND_URL,
-        help="Backend URL to POST detection state to. Set to '' to disable.",
-    )
-    parser.add_argument(
-        "--headless",
-        action="store_true",
-        help="No GUI window -- just run detection and write --state-path",
-    )
-    args = parser.parse_args()
-
-    exported_size = load_export_imgsz(args.labels)
-    if args.input_size is None:
-        args.input_size = exported_size or 320
-    if args.input_size % 32 != 0:
-        raise ValueError(
-            f"--input-size must be a multiple of 32, got {args.input_size}"
-        )
-    if exported_size is not None and args.input_size != exported_size:
-        raise ValueError(
-            f"--input-size {args.input_size} does not match the model's exported imgsz "
-            f"{exported_size} ({args.labels}). The NCNN export bakes its anchor grid for the "
-            "export size; re-export with dev/export_model.py --imgsz N instead."
-        )
-    return args
+    return parser.parse_args()
 
 
-def class_ids_for(labels: list[str], classes: str) -> set[int] | None:
+def class_ids_for(labels: list[str], classes: list[str]) -> set[int] | None:
     """Return the requested label IDs, or None when all classes are requested."""
-    if not classes.strip():
+    wanted = {label.strip() for label in classes if label.strip()}
+    if not wanted:
         return None
-    wanted = {label.strip() for label in classes.split(",") if label.strip()}
     unknown = wanted - set(labels)
     if unknown:
         raise ValueError(f"Unknown class label(s): {', '.join(sorted(unknown))}")
@@ -134,21 +41,27 @@ def class_ids_for(labels: list[str], classes: str) -> set[int] | None:
 def main() -> None:
     """Capture frames, run inference, and publish state until interrupted."""
     args = parse_args()
-    labels = load_labels(args.labels)
-    class_ids_filter = class_ids_for(labels, args.classes)
-    detector = Detector(args.model, args.use_vulkan, args.threads)
+    config = load_config(args.config)
+    assert config.model.input_size is not None  # load_config always resolves this
+    labels = load_labels(config.model.labels_path)
+    class_ids_filter = class_ids_for(labels, config.detection.classes)
+    detector = Detector(
+        config.model.path, config.model.use_vulkan, config.model.cpu_threads
+    )
 
-    cap = cv2.VideoCapture(args.camera)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
+    cap = cv2.VideoCapture(config.camera.source)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.camera.width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.camera.height)
     if not cap.isOpened():
-        raise RuntimeError(f"Could not open camera index {args.camera}")
+        raise RuntimeError(f"Could not open camera index {config.camera.source}")
 
     grabber = LatestFrameGrabber(cap).start()
     print(
-        f"[{utc_ts()}] [detect] started: model={args.model}, labels={args.labels}, "
-        f"camera={args.camera}, backend={args.backend_url or 'disabled'}, "
-        f"use_vulkan={args.use_vulkan:1}, input_size={args.input_size}, fit={args.fit}"
+        f"[{utc_ts()}] [detect] started: model={config.model.path}, "
+        f"labels={config.model.labels_path}, camera={config.camera.source}, "
+        f"backend={config.output.backend_url or 'disabled'}, "
+        f"use_vulkan={config.model.use_vulkan:1}, input_size={config.model.input_size}, "
+        f"fit={config.model.fit}"
     )
 
     fps = 0.0
@@ -165,7 +78,12 @@ def main() -> None:
             infer_started_at = time.time()  # captured_at -> here is frame age.
 
             boxes, confidences, class_ids, fit = detector.infer(
-                frame, args.input_size, args.fit, args.conf, args.iou, class_ids_filter
+                frame,
+                config.model.input_size,
+                config.model.fit,
+                config.detection.confidence_threshold,
+                config.detection.nms_iou_threshold,
+                class_ids_filter,
             )
             inferred_at = time.time()
             frame_height, frame_width = frame.shape[:2]
@@ -178,13 +96,19 @@ def main() -> None:
                 infer_started_at,
                 inferred_at,
                 frame_size=(frame_width, frame_height),
-                roi=roi_from_fit(fit, frame_width, frame_height, args.input_size),
+                roi=roi_from_fit(
+                    fit, frame_width, frame_height, config.model.input_size
+                ),
             )
-            write_state(args.state_path, state)
-            if args.backend_url:
-                post_state(args.backend_url, state)
-            if args.snapshot_path:
-                write_snapshot(Path(args.snapshot_path), frame, args.snapshot_interval)
+            write_state(config.output.state_path, state)
+            if config.output.backend_url:
+                post_state(config.output.backend_url, state)
+            if config.output.snapshot_path:
+                write_snapshot(
+                    Path(config.output.snapshot_path),
+                    frame,
+                    config.output.snapshot_interval,
+                )
 
             now = time.time()
             fps = 0.9 * fps + 0.1 * (1.0 / max(now - previous_time, 1e-6))
@@ -194,11 +118,12 @@ def main() -> None:
             if now - last_diagnostic_time >= 1.0:
                 print(
                     f"[{utc_ts()}] [detect] fps={fps:.1f} detections={len(state['detections'])} "
-                    f"backend={args.backend_url or 'disabled'} use_vulkan={args.use_vulkan:1}"
+                    f"backend={config.output.backend_url or 'disabled'} "
+                    f"use_vulkan={config.model.use_vulkan:1}"
                 )
                 last_diagnostic_time = now
 
-            if not args.headless:
+            if not config.headless:
                 draw_detections(frame, boxes, confidences, class_ids, labels)
                 cv2.putText(
                     frame,
@@ -215,7 +140,7 @@ def main() -> None:
                     break
     finally:
         cap.release()
-        if not args.headless:
+        if not config.headless:
             cv2.destroyAllWindows()
 
 
