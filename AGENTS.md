@@ -34,8 +34,8 @@ python/detect.py --headless  ->  POST /api/detections  ->  backend  ->  GET /api
   continuously, re-sent every 5s). `GET /api/detections/latest` backs the
   `/debug` page's detection-box overlay. The camera snapshot route was removed
   on purpose: the Pi is public via tailscale funnel, so no camera pixels leave
-  the Pi until the debug routes sit behind auth (`detect.py`'s `snapshot_path`
-  config key is off by default for the same reason).
+  the Pi until the debug routes sit behind auth (`detect.py`'s
+  `output.snapshot_path` config key is off by default for the same reason).
 - Detection always stays a separate Python service. The backend never runs CV.
 - Latency across the pipeline (capture -> infer -> sent -> received ->
   broadcast -> browser) is tracked in `backend/src/latency.ts` (in-memory ring
