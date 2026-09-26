@@ -9,6 +9,7 @@ dependencies = [
   "numpy>=1.26",
   "flask>=3.0",
   "ncnn>=1.0.20260526",
+  "pyyaml>=6.0.3",
 ]
 
 [tool.uv]
