@@ -8,5 +8,7 @@
   `pyproject.toml`, only in `uv.lock`.
 - Dependencies that are specific to scripts that are run outside the normal production
   loop, such as `dev/export_model.py`, should be installed as dev dependencies.
-- ALWAYS run `uv run black .` in the `python/` directory after adding or modifying any
-  Python code. `black` is installed as a dev dependency.
+- After adding or modifying any Python code, ALWAYS run both of the following
+  from the `python/` directory (both are installed as dev dependencies):
+  - `uv run pyright .` to catch type errors.
+  - `uv run black .` to format.
