@@ -5,13 +5,19 @@
 # See config.py for full descriptions of all keys.
 
 camera:
-  source: 0 # Webcam device index
-  width: 640 # Capture width
-  height: 480 # Capture height
+  # Webcam device index
+  source: 0
+
+  # Requested width and height of camera images
+  width: 640
+  height: 480
 
 model:
-  path: yolov8n_ncnn_model/model.ncnn.param # Path to the NCNN .param export
-  labels_path: yolov8n_ncnn_model/metadata.yaml # Path to the model metadata YAML
+  # Path to the NCNN .param export
+  path: yolov8n_ncnn_model/model.ncnn.param
+
+  # Path to the model metadata YAML
+  labels_path: yolov8n_ncnn_model/metadata.yaml
 
   # Input size in pixels (square); null uses the model's export size
   input_size: null
@@ -26,21 +32,29 @@ model:
   cpu_threads: 1
 
 detection:
-  confidence_threshold: 0.4 # Confidence threshold
-  nms_iou_threshold: 0.45 # NMS IoU threshold
+  # Minimum confidence score for a candidate box to count as a detection
+  confidence_threshold: 0.4
+
+  # Intersection-over-union (IoU) threshold for Non-Maximum Suppression (NMS), used to
+  # deduplicate detections for the same object
+  nms_iou_threshold: 0.45
 
   # COCO labels to detect; empty list detects all 80 classes
   classes:
     - person
 
 output:
-  state_path: ../state/detections.json # Detection state JSON output path
+  # Detection state JSON output path
+  state_path: ../state/detections.json
 
   # Snapshot JPEG path for debugging; empty disables it (off by default for privacy)
   snapshot_path: ""
-  snapshot_interval: 1.0 # Minimum seconds between snapshot writes
 
-  backend_url: http://127.0.0.1:3000/api/detections # POST target; "" disables it
+  # Minimum seconds between snapshot writes
+  snapshot_interval: 1.0
+
+  # POST target; "" disables it
+  backend_url: http://127.0.0.1:3000/api/detections
 
 # No GUI window (Ctrl+C to quit); false opens one (press q to quit)
 headless: true
