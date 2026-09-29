@@ -49,7 +49,16 @@ class ModelConfig:
 
 @dataclass
 class DetectionConfig:
+    # Minimum score (0-1) a candidate box must have to count as a detection. Raise it to
+    # cut false positives (clutter, shadows); lower it to catch weaker or more distant
+    # detections at the cost of more noise.
     confidence_threshold: float = 0.4
+
+    # Overlap threshold (IoU, intersection-over-union) used by Non-Maximum Suppression to
+    # collapse duplicate boxes for the same object: of any two boxes overlapping more than
+    # this, only the higher-confidence one survives. Lower it to suppress more aggressively
+    # (risk merging distinct, close-together objects); raise it to let more overlap through
+    # (risk reporting the same object twice).
     nms_iou_threshold: float = 0.45
 
     # COCO labels to detect (see models/coco.names). Empty list detects all 80 classes.
