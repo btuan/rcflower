@@ -13,7 +13,7 @@ const IMG_SIZES = "160px";
 
 const MENU_ITEMS = [
   {
-    to: "/flower",
+    to: "/live",
     label: "Flower",
     src: flowerHappy512,
     srcSet: `${flowerHappy256} 256w, ${flowerHappy512} 512w, ${flowerHappy1024} 1024w, ${flowerHappy2048} 2048w`,
