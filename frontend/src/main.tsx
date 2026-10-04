@@ -1,7 +1,7 @@
 import { StrictMode, Suspense, lazy } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
-import App from "./App.tsx";
+import Home from "./Home.tsx";
 import { BrowserRouter, Routes, Route } from "react-router";
 import WateringCan from "./WateringCan.tsx";
 import { Flower } from "./Flower.tsx";
@@ -19,7 +19,7 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<App />} />
+        <Route path="/" element={<Home />} />
         <Route path="/watering-can" element={<WateringCan />} />
         <Route path="/flower" element={<Flower />} />
         <Route
