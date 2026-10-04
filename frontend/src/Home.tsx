@@ -29,6 +29,26 @@ const MENU_ITEMS = [
 export default function Home() {
   return (
     <div className="flex min-h-screen flex-col">
+      <h1
+        style={{
+          position: "fixed",
+          left: 0,
+          right: 0,
+          // Mirrors the credit line at the bottom: clear of the notch on a
+          // notched phone, 24px everywhere else.
+          top: "max(24px, env(safe-area-inset-top))",
+          margin: 0,
+          textAlign: "center",
+          font: "600 22px/1.3 system-ui, sans-serif",
+          letterSpacing: "0.01em",
+          color: "#3d3b36",
+          textShadow: "0 1px 2px rgba(255, 255, 255, 0.8)",
+          pointerEvents: "none",
+          zIndex: 6,
+        }}
+      >
+        RC Flower
+      </h1>
       <main className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center gap-4 p-4">
         {MENU_ITEMS.map((item) => (
           <Link
