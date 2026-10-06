@@ -64,6 +64,10 @@ class DetectionConfig:
     # COCO labels to detect (see models/coco.names). Empty list detects all 80 classes.
     classes: list[str] = field(default_factory=lambda: ["person"])
 
+    detect_every: int = 10  # Force a re-detect after N tracked frames
+    idle_timeout: float = 30.0  # Seconds without a detection before sleeping
+    sleep_poll: float = 1.0  # Seconds between detector polls while asleep
+
 
 @dataclass
 class OutputConfig:
