@@ -6,7 +6,8 @@
 // `frontend/src/assets/flower/`, which are committed so the build doesn't
 // depend on this script running in CI.
 //
-// Usage: `npm run images` (from frontend/), or `node scripts/gen-images.mjs`.
+// Usage: `npm run flower-images` (from frontend/), or
+// `node scripts/gen-flower-images.mjs`.
 
 import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
