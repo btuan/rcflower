@@ -3,10 +3,10 @@ import flowerHappy256 from "./assets/flower/FlowerHappy-256.webp";
 import flowerHappy512 from "./assets/flower/FlowerHappy-512.webp";
 import flowerHappy1024 from "./assets/flower/FlowerHappy-1024.webp";
 import flowerHappy2048 from "./assets/flower/FlowerHappy-2048.webp";
-import wateringCanUpright256 from "./assets/WateringCan/WateringCanUpright-256.webp";
-import wateringCanUpright512 from "./assets/WateringCan/WateringCanUpright-512.webp";
-import wateringCanUpright1024 from "./assets/WateringCan/WateringCanUpright-1024.webp";
-import wateringCanUpright2048 from "./assets/WateringCan/WateringCanUpright-2048.webp";
+import wateringCanCropped256 from "./assets/WateringCan/WateringCanCropped-256.webp";
+import wateringCanCropped512 from "./assets/WateringCan/WateringCanCropped-512.webp";
+import wateringCanCropped1024 from "./assets/WateringCan/WateringCanCropped-1024.webp";
+import wateringCanCropped2048 from "./assets/WateringCan/WateringCanCropped-2048.webp";
 
 // Thumbnails render at ~112-160 CSS px wide.
 const IMG_SIZES = "160px";
@@ -21,8 +21,8 @@ const MENU_ITEMS = [
   {
     to: "/watering-can",
     label: "Watering Can",
-    src: wateringCanUpright512,
-    srcSet: `${wateringCanUpright256} 256w, ${wateringCanUpright512} 512w, ${wateringCanUpright1024} 1024w, ${wateringCanUpright2048} 2048w`,
+    src: wateringCanCropped512,
+    srcSet: `${wateringCanCropped256} 256w, ${wateringCanCropped512} 512w, ${wateringCanCropped1024} 1024w, ${wateringCanCropped2048} 2048w`,
   },
 ];
 

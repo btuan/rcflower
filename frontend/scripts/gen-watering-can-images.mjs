@@ -6,7 +6,8 @@
 // `frontend/src/assets/WateringCan/`, which are committed so the build doesn't
 // depend on this script running in CI.
 //
-// Usage: `npm run images` (from frontend/), or `node scripts/gen-images.mjs`.
+// Usage: `npm run watering-can-images` (from frontend/), or
+// `node scripts/gen-watering-can-images.mjs`.
 
 import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -18,7 +19,7 @@ const repoRoot = path.resolve(__dirname, "..", "..");
 const srcDir = path.join(repoRoot, "assets", "watering_can");
 const outDir = path.join(__dirname, "..", "src", "assets", "WateringCan");
 
-const STATES = ["Upright", "Pour1", "Pour2"];
+const STATES = ["Upright", "Pour1", "Pour2", "Cropped"];
 const WIDTHS = [256, 512, 1024, 2048];
 const WEBP_QUALITY = 82;
 
