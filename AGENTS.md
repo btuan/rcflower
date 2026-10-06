@@ -101,3 +101,4 @@ bun run build:frontend && bun run start  # prod, :3000
   `.ts` extensions in relative imports (backend uses `verbatimModuleSyntax` +
   `allowImportingTsExtensions`).
 - Commit messages: Conventional Commits (`feat(backend): ...`).
+- Always commit new changes in a feature branch, never `main`.
