@@ -27,7 +27,7 @@ import { getSamples, getStats } from "./latency.ts";
 import { getMood, isUnalive, kill, revive } from "./mood.ts";
 import { pourState, setPouring } from "./pour.ts";
 import { handleEvents } from "./sse.ts";
-import { recentWatering, recordWatering } from "./watering.ts";
+import { isWateringIgnored, recentWatering, recordWatering, setWateringIgnored } from "./watering.ts";
 import { proxyToVite, serveStatic } from "./http.ts";
 import { startVite } from "./vite.ts";
 
@@ -55,6 +55,9 @@ const cookieUserName = (req: Request): string | null => {
   }
 };
 
+/** Debug: watering/pour requests are dropped only while the "ignore watering" box is checked AND the flower is unalive. */
+const wateringDropped = (): boolean => isWateringIgnored() && isUnalive();
+
 /** POST /api/water -- log a watering event and broadcast it over SSE. */
 async function handleWater(req: Request, server: Bun.Server<undefined>): Promise<Response> {
   let body: Record<string, unknown> = {};
@@ -69,6 +72,7 @@ async function handleWater(req: Request, server: Bun.Server<undefined>): Promise
   } catch {
     // empty / invalid body -- fall back to defaults
   }
+  if (wateringDropped()) return Response.json({ ignored: true }, { status: 202 });
   const event = recordWatering({
     trigger: typeof body.trigger === "string" ? body.trigger : "manual",
     durationMs: num(body.durationMs),
@@ -95,6 +99,7 @@ async function handlePour(req: Request): Promise<Response> {
   if (typeof body.pouring !== "boolean") {
     return Response.json({ error: "expected { pouring: boolean }" }, { status: 400 });
   }
+  if (wateringDropped()) return Response.json(pourState());
   return Response.json(setPouring(body.pouring));
 }
 
@@ -173,12 +178,16 @@ async function handleSimulateSweep(req: Request): Promise<Response> {
   return Response.json({ sweeping: isSweeping() });
 }
 
-const unaliveStatus = () => Response.json({ unalive: isUnalive(), mood: getMood() });
+const unaliveStatus = () =>
+  Response.json({ unalive: isUnalive(), mood: getMood(), wateringIgnored: isWateringIgnored() });
 
 /**
- * POST /api/debug/unalive -- `{ unalive: boolean }` (default true). true forces
- * the flower's mood to "dead" (stashing its last watering); false restores it.
- * A real watering while unalive also ends it.
+ * POST /api/debug/unalive -- `{ unalive?: boolean, wateringIgnored?: boolean }`.
+ * `unalive` true (the default when neither field is given) forces the flower's
+ * mood to "dead" (stashing its last watering); false restores it. A real
+ * watering while unalive also ends it. `wateringIgnored` is a preference that
+ * only takes effect while unalive: then incoming watering/pour requests are
+ * dropped entirely, so watering can't revive the flower.
  */
 async function handleUnalive(req: Request): Promise<Response> {
   let body: Record<string, unknown> = {};
@@ -187,8 +196,11 @@ async function handleUnalive(req: Request): Promise<Response> {
   } catch {
     // default below
   }
+  if (typeof body.wateringIgnored === "boolean") setWateringIgnored(body.wateringIgnored);
   if (body.unalive === false) revive();
-  else kill();
+  else if (body.unalive === true || typeof body.wateringIgnored !== "boolean") kill();
+  // Don't strand a pour in progress: its stop request would now be dropped.
+  if (wateringDropped()) setPouring(false);
   return unaliveStatus();
 }
 
