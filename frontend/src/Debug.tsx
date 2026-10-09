@@ -268,7 +268,66 @@ function SimulateSweep() {
   );
 }
 
-type AuthState = { status: "loading" } | { status: "out" } | { status: "in"; name: string };
+/**
+ * Toggles forcing the flower's mood to "dead". "de-unalive" restores the
+ * pre-unalive watering time; a real watering also ends it (polled to catch that).
+ */
+function Unalive() {
+  const [unalive, setUnalive] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const toggle = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/debug/unalive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unalive: !unalive }),
+      });
+      const data = (await res.json()) as { unalive: boolean };
+      setUnalive(data.unalive);
+    } catch {
+      // best-effort
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    const sync = () =>
+      fetch("/api/debug/unalive")
+        .then((r) => r.json())
+        .then((d: { unalive: boolean }) => {
+          if (!cancelled) setUnalive(d.unalive);
+        })
+        .catch(() => {});
+    sync();
+    const id = setInterval(sync, 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  return (
+    <div className="mb-6 flex flex-wrap items-center gap-3 rounded border border-neutral-700 p-3">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void toggle()}
+        className="rounded bg-red-800 px-3 py-1 font-bold hover:bg-red-700 disabled:opacity-50"
+      >
+        {unalive ? "de-unalive" : "unalive"}
+      </button>
+      <span className="text-neutral-500">
+        forces mood to "dead"; de-unalive restores the previous watering time (a real watering also ends it)
+      </span>
+    </div>
+  );
+}
+
+type AuthState ={ status: "loading" } | { status: "out" } | { status: "in"; name: string };
 
 /** GET /api/auth/me on mount -- whether this browser has a valid RC session. */
 function useAuth(): AuthState {
@@ -425,10 +484,15 @@ function DebugContent({ name }: { name: string }) {
         </button>
       </p>
 
-      <SimulatePerson />
-      <SimulateSweep />
-
-      <DetectionView latestTrack={latestTrack} />
+      {/* Stacks on narrow screens (controls first); two columns from `lg` up. */}
+      <div className="grid grid-cols-1 items-start gap-x-6 lg:grid-cols-2">
+        <div>
+          <Unalive />
+          <SimulatePerson />
+          <SimulateSweep />
+        </div>
+        <DetectionView latestTrack={latestTrack} />
+      </div>
 
       <h2 className="mb-2 mt-6 font-bold">per-frame stage stats (last 300 samples)</h2>
       {latency ? <StatsTable stats={latency.stats} /> : <p>loading…</p>}

@@ -57,14 +57,40 @@ setInterval(evaluate, 1000);
 // event is logged. The completed watering below re-stamps the same clock.
 onPourChange((pouring, changedAt) => {
   if (!pouring) return;
+  stashedWateredAt = undefined;
   lastWateredAt = changedAt;
   evaluate();
 });
 
 onWatering((event) => {
+  stashedWateredAt = undefined;
   lastWateredAt = event.wateredAt;
   evaluate();
 });
+
+/**
+ * Debug: force the flower dead by forgetting its last watering (the same state
+ * as a never-watered flower). The previous value is stashed in `stashedWateredAt`
+ * (undefined = not unalive) so `revive()` can restore it. A real watering/pour
+ * while unalive revives the flower for real and drops the stash.
+ */
+let stashedWateredAt: number | null | undefined;
+
+export function kill(): void {
+  if (stashedWateredAt === undefined) stashedWateredAt = lastWateredAt;
+  lastWateredAt = null;
+  evaluate();
+}
+
+/** Undo `kill()`, restoring the pre-kill `lastWateredAt`. No-op if not unalive. */
+export function revive(): void {
+  if (stashedWateredAt === undefined) return;
+  lastWateredAt = stashedWateredAt;
+  stashedWateredAt = undefined;
+  evaluate();
+}
+
+export const isUnalive = (): boolean => stashedWateredAt !== undefined;
 
 export const getMood = (): Mood => currentMood;
 
