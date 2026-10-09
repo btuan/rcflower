@@ -4,3 +4,4 @@ state/
 .venv/
 *.pyc
 *.DS_Store
+*.pem
