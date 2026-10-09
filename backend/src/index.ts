@@ -24,6 +24,7 @@ import {
   simulateSweep,
 } from "./detections.ts";
 import { getSamples, getStats } from "./latency.ts";
+import { getMood, isUnalive, kill, revive } from "./mood.ts";
 import { pourState, setPouring } from "./pour.ts";
 import { handleEvents } from "./sse.ts";
 import { recentWatering, recordWatering } from "./watering.ts";
@@ -172,6 +173,25 @@ async function handleSimulateSweep(req: Request): Promise<Response> {
   return Response.json({ sweeping: isSweeping() });
 }
 
+const unaliveStatus = () => Response.json({ unalive: isUnalive(), mood: getMood() });
+
+/**
+ * POST /api/debug/unalive -- `{ unalive: boolean }` (default true). true forces
+ * the flower's mood to "dead" (stashing its last watering); false restores it.
+ * A real watering while unalive also ends it.
+ */
+async function handleUnalive(req: Request): Promise<Response> {
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    // default below
+  }
+  if (body.unalive === false) revive();
+  else kill();
+  return unaliveStatus();
+}
+
 /** 401 JSON if the request has no valid RC session cookie; otherwise null (caller proceeds). */
 const requireSession = (req: Request): Response | null =>
   getSession(req) ? null : Response.json({ error: "authentication required" }, { status: 401 });
@@ -279,6 +299,11 @@ const server = Bun.serve({
       case "/api/debug/simulate-person":
         return (
           requireSession(req) ?? (req.method === "POST" ? handleSimulatePerson(req) : simulateStatus())
+        );
+      case "/api/debug/unalive":
+        return (
+          requireSession(req) ??
+          (req.method === "POST" ? handleUnalive(req) : unaliveStatus())
         );
       case "/api/debug/simulate-sweep":
         return (
