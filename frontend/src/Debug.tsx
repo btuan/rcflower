@@ -268,24 +268,28 @@ function SimulateSweep() {
   );
 }
 
+type UnaliveStatus = { unalive: boolean; wateringIgnored: boolean };
+
 /**
  * Toggles forcing the flower's mood to "dead". "de-unalive" restores the
  * pre-unalive watering time; a real watering also ends it (polled to catch that).
+ * The checkbox makes the backend drop watering/pour requests while unalive, so
+ * the flower stays dead when watered and the "last watered by" credit doesn't
+ * change. It has no effect until unalive is on, so it can be checked first.
  */
 function Unalive() {
-  const [unalive, setUnalive] = useState(false);
+  const [status, setStatus] = useState<UnaliveStatus>({ unalive: false, wateringIgnored: false });
   const [busy, setBusy] = useState(false);
 
-  const toggle = async () => {
+  const post = async (body: Partial<UnaliveStatus>) => {
     setBusy(true);
     try {
       const res = await fetch("/api/debug/unalive", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ unalive: !unalive }),
+        body: JSON.stringify(body),
       });
-      const data = (await res.json()) as { unalive: boolean };
-      setUnalive(data.unalive);
+      setStatus((await res.json()) as UnaliveStatus);
     } catch {
       // best-effort
     } finally {
@@ -298,8 +302,8 @@ function Unalive() {
     const sync = () =>
       fetch("/api/debug/unalive")
         .then((r) => r.json())
-        .then((d: { unalive: boolean }) => {
-          if (!cancelled) setUnalive(d.unalive);
+        .then((d: UnaliveStatus) => {
+          if (!cancelled) setStatus(d);
         })
         .catch(() => {});
     sync();
@@ -315,13 +319,24 @@ function Unalive() {
       <button
         type="button"
         disabled={busy}
-        onClick={() => void toggle()}
+        onClick={() => void post({ unalive: !status.unalive })}
         className="rounded bg-red-800 px-3 py-1 font-bold hover:bg-red-700 disabled:opacity-50"
       >
-        {unalive ? "de-unalive" : "unalive"}
+        {status.unalive ? "de-unalive" : "unalive"}
       </button>
+      <label className="flex items-center gap-1 text-neutral-300">
+        <input
+          type="checkbox"
+          checked={status.wateringIgnored}
+          disabled={busy}
+          onChange={(e) => void post({ wateringIgnored: e.target.checked })}
+        />
+        ignore watering
+      </label>
       <span className="text-neutral-500">
-        forces mood to "dead"; de-unalive restores the previous watering time (a real watering also ends it)
+        unalive forces mood to "dead"; de-unalive restores the previous watering time. While
+        unalive, ignoring watering drops pour/water requests, so the flower stays dead and the
+        credit line is not updated (no effect when not unalive)
       </span>
     </div>
   );

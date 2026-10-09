@@ -36,6 +36,15 @@ const recentStmt = db.query<WateringEvent, { $limit: number }>(`
 
 const listeners = new Set<(e: WateringEvent) => void>();
 
+// Debug preference: when set (and the flower is unalive -- see index.ts),
+// POST /api/water and /api/pour are acknowledged but dropped, so the flower
+// neither revives nor updates its "last watered by" credit.
+let ignored = false;
+export const isWateringIgnored = (): boolean => ignored;
+export const setWateringIgnored = (next: boolean): void => {
+  ignored = next;
+};
+
 /** Insert a watering event, then notify SSE subscribers. */
 export function recordWatering(input: {
   trigger?: string;
