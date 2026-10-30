@@ -1,4 +1,5 @@
-# Installed via deploy/install-systemd.sh -- edit this file, then re-run that
+# Template: install-systemd.sh fills in the @TOKENS@ and installs the result.
+# Edit this file (not /etc/systemd/system/), then re-run that
 # script (not `systemctl edit`) so the repo stays the source of truth.
 [Unit]
 Description=rcflower person detection (YOLOv8n NCNN, headless)
@@ -9,11 +10,11 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/code/rcflower/python
-Environment=PATH=/home/pi/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+User=@USER@
+WorkingDirectory=@REPO_ROOT@/python
+Environment=PATH=@UV_DIR@:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/pi/.local/bin/uv run --no-dev python -u detect.py --config detect-config.prod.yaml
+ExecStart=@UV_DIR@/uv run --no-dev python -u detect.py --config detect-config.prod.yaml
 Restart=on-failure
 RestartSec=3
 # POSTs to the backend are best-effort (logs + continues on failure), so this

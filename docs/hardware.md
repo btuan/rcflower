@@ -85,9 +85,9 @@ confirmed by direct testing on this device instead. See
   root `AGENTS.md`).
 - Two systemd services:
   - `rcflower-backend` — the Bun web server
-    (`deploy/systemd/rcflower-backend.service`).
+    (`deploy/systemd/rcflower-backend.service.in`).
   - `rcflower-detect` — the Python vision service
-    (`deploy/systemd/rcflower-detect.service`).
+    (`deploy/systemd/rcflower-detect.service.in`).
 
 ## Known resource baseline
 
