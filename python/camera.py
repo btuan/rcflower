@@ -8,6 +8,32 @@ import cv2
 import numpy as np
 
 
+class CameraNotFoundError(Exception):
+    """Raised when the camera can't be opened (unplugged, wrong index, or in use)."""
+
+
+def open_camera(source: int | str, width: int, height: int) -> cv2.VideoCapture:
+    """Open the camera, or raise ``CameraNotFoundError``.
+
+    ``cv2.VideoCapture`` doesn't raise when a device is missing: it returns an
+    object whose ``isOpened()`` is False (and OpenCV logs a warning to stderr).
+    """
+    reason = "not found, or in use by another process"
+    try:
+        cap = cv2.VideoCapture(source)
+    except cv2.error as exc:
+        raise CameraNotFoundError(f"Could not open camera {source!r}: {exc}") from exc
+    if not cap.isOpened():
+        cap.release()
+        raise CameraNotFoundError(
+            f"Could not open camera {source!r}: {reason} "
+            "(on Linux, check `ls /dev/video*`)"
+        )
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    return cap
+
+
 @dataclass
 class Fit:
     """Maps model-space pixel coordinates back to frame-space coordinates.

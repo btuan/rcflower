@@ -1,6 +1,7 @@
 """Run live YOLOv8n detection from a USB webcam and publish its results."""
 
 import argparse
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -10,7 +11,13 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from camera import LatestFrameGrabber, draw_detections, roi_from_fit
+from camera import (
+    CameraNotFoundError,
+    LatestFrameGrabber,
+    draw_detections,
+    open_camera,
+    roi_from_fit,
+)
 from config import Config, load_config
 from ipc import build_state, post_state, utc_ts, write_snapshot, write_state
 from vision import Detector, load_labels
@@ -248,15 +255,11 @@ def main() -> None:
     assert config.model.input_size is not None  # load_config always resolves this
     labels = load_labels(config.model.labels_path)
     class_ids_filter = class_ids_for(labels, config.detection.classes)
+    # Open the camera before loading the model so a missing camera fails fast.
+    cap = open_camera(config.camera.source, config.camera.width, config.camera.height)
     detector = Detector(
         config.model.path, config.model.use_vulkan, config.model.cpu_threads
     )
-
-    cap = cv2.VideoCapture(config.camera.source)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.camera.width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.camera.height)
-    if not cap.isOpened():
-        raise RuntimeError(f"Could not open camera index {config.camera.source}")
 
     grabber = LatestFrameGrabber(cap).start()
     print(
@@ -285,4 +288,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except CameraNotFoundError as exc:
+        # Expected hardware condition: one log line and a failing exit status
+        # (so systemd's Restart=on-failure applies), not a traceback.
+        print(f"[{utc_ts()}] [detect] ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
