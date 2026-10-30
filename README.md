@@ -42,8 +42,10 @@ cwd. The one Vite-only thing you'll touch is `frontend/.env`'s
 
 Both `python/detect.py` and the backend run as systemd units so they start on
 boot and restart on failure. Unit files live in this repo at
-`deploy/systemd/*.service` (not `/etc/systemd/system/` directly) so changes
-go through git like everything else.
+`deploy/systemd/*.service.in` (not `/etc/systemd/system/` directly) so changes
+go through git like everything else. They're templates: `install-systemd.sh`
+fills in the current user, repo path, and Bun/uv locations (override with
+`BUN=` / `UV=`), so it works on any machine, not just the Pi's `pi` account.
 
 ### Install / update
 
@@ -114,7 +116,7 @@ ls -la /dev/video*
 ```
 
 If the index changes, update `--camera` in
-`deploy/systemd/rcflower-detect.service` and re-run
+`deploy/systemd/rcflower-detect.service.in` and re-run
 `./deploy/install-systemd.sh`.
 
 ## Licensing

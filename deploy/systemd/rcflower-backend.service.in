@@ -1,4 +1,5 @@
-# Installed via deploy/install-systemd.sh -- edit this file, then re-run that
+# Template: install-systemd.sh fills in the @TOKENS@ and installs the result.
+# Edit this file (not /etc/systemd/system/), then re-run that
 # script (not `systemctl edit`) so the repo stays the source of truth.
 #
 # PROD mode: Bun serves the API + the prebuilt frontend from frontend/dist.
@@ -12,12 +13,12 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/code/rcflower/backend
+User=@USER@
+WorkingDirectory=@REPO_ROOT@/backend
 # The package.json "start" script invokes `bun` by name, so bun's bin dir has
 # to be on PATH even though ExecStart uses the full path.
-Environment=PATH=/home/pi/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=/home/pi/.bun/bin/bun run start
+Environment=PATH=@BUN_DIR@:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=@BUN_DIR@/bun run start
 Restart=on-failure
 RestartSec=3
 # stdout/stderr go to the journal -- `journalctl -u rcflower-backend -f`
