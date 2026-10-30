@@ -20,6 +20,21 @@ if [[ "$SERVICE_USER" == "root" ]]; then
   exit 1
 fi
 
+# Fail up front, listing everything that's missing, rather than crashing
+# halfway through the deploy. bun is always needed (the backend unit runs it);
+# npm only for the frontend build.
+missing=()
+[[ -x "$BUN" ]] || missing+=("bun (not executable at $BUN; set BUN=/path/to/bun)")
+[[ -x "$UV" ]] || missing+=("uv (not executable at $UV; set UV=/path/to/uv)")
+if [[ "${1:-}" != "--no-build" ]]; then
+  command -v npm >/dev/null || missing+=("npm (not on PATH)")
+fi
+if (( ${#missing[@]} )); then
+  echo "Missing prerequisites:" >&2
+  printf '  - %s\n' "${missing[@]}" >&2
+  exit 1
+fi
+
 if [[ "${1:-}" != "--no-build" ]]; then
   # The backend unit runs in prod mode and serves frontend/dist; there is no
   # Vite process on the Pi, so the static build has to happen here.
