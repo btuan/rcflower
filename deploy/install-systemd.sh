@@ -20,8 +20,8 @@ if [[ "${1:-}" != "--no-build" ]]; then
   (cd "$REPO_ROOT/backend" && "$BUN" install --silent)
 fi
 
-echo "Syncing Python environment via uv"
-(cd "$REPO_ROOT/python" && "$HOME/.local/bin/uv" sync --locked)
+echo "Syncing Python runtime dependencies via uv (no dev group: torch etc.)"
+(cd "$REPO_ROOT/python" && "$HOME/.local/bin/uv" sync --locked --no-dev)
 
 for unit in "${UNITS[@]}"; do
   echo "Installing $unit -> /etc/systemd/system/$unit"

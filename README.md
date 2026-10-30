@@ -62,7 +62,7 @@ frontend build (e.g. only a unit file changed).
 | Unit | What it runs | Notes |
 |---|---|---|
 | `rcflower-backend.service` | `bun run start` in `backend/` | **Prod mode**: API + prebuilt `frontend/dist` on :3000. No Vite process on the Pi. Frontend changes need a rebuild -- re-run `install-systemd.sh`. |
-| `rcflower-detect.service` | `uv run python -u detect.py --config detect-config.prod.yaml` in `python/` | Person-only detection (headless). POSTs to the backend are best-effort, so this doesn't hard-depend on the backend being up. |
+| `rcflower-detect.service` | `uv run --no-dev python -u detect.py --config detect-config.prod.yaml` in `python/` | Person-only detection (headless). POSTs to the backend are best-effort, so this doesn't hard-depend on the backend being up. |
 
 ### Inspecting logs
 
