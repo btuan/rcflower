@@ -4,7 +4,7 @@
  * received/ingested (backend) -> broadcast over SSE (backend, transitions
  * only) -> browser (frontend, see /debug).
  *
- * All timestamps stored here are ms epoch, on the Pi's clock (Python and the
+ * All timestamps stored here are ms epoch, on the device's clock (Python and the
  * backend share a clock -- no skew correction needed for these stages; the
  * frontend is a separate device and does its own clock-offset estimation via
  * GET /api/time, see Debug.tsx).

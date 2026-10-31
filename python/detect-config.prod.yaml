@@ -1,5 +1,5 @@
-# Production config for the Pi's rcflower-detect systemd service (see
-# deploy/systemd/rcflower-detect.service). Only lists what differs from
+# Production config for the rcflower-detect systemd service (see
+# deploy/systemd/rcflower-detect.service.in). Only lists what differs from
 # detect.py's built-in Config defaults.
 
 # Paths to model weights and metadata, relative to working directory

@@ -73,7 +73,7 @@ class DetectionConfig:
 class OutputConfig:
     state_path: Path = STATE_PATH  # Detection state JSON output path
 
-    # JPEG snapshot output path for debugging, resized to 320px wide. Off by default: the Pi
+    # JPEG snapshot output path for debugging, resized to 320px wide. Off by default: the deployed device
     # is reachable over tailscale funnel and anything under state/ that the backend serves
     # would be public.
     snapshot_path: str = ""

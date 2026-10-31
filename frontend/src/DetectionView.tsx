@@ -21,7 +21,7 @@ export type TrackPayload = {
 
 /**
  * Detection boxes / ROI drawn on a blank frame for /debug. The camera image
- * itself is deliberately NOT shown: the Pi is exposed via tailscale funnel, so
+ * itself is deliberately NOT shown: the deployed device is exposed via tailscale funnel, so
  * anything the backend serves is public. Bring the snapshot back once the
  * debug routes sit behind auth.
  */

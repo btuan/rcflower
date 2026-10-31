@@ -1,6 +1,7 @@
 # rcflower
 
-Three pieces, running together on a Raspberry Pi 4B:
+The RC Flower application consists of three pieces that run in an embedded Linux
+environment:
 
 - **`python/`** — `detect.py` reads a USB webcam, runs a YOLOv8n NCNN model
   from `python/yolov8n_ncnn_model`, and reports person detections. See
@@ -10,6 +11,11 @@ Three pieces, running together on a Raspberry Pi 4B:
   SQLite, and pushes live updates to the frontend over SSE. See
   [`backend/README.md`](backend/README.md).
 - **`frontend/`** — the UI (React), compiled by Vite, served by the backend.
+
+In principle, this software can be run on any single-board computer - though
+originally developed for the Raspberry Pi 4B, we are making changes so it can
+be run on the Arduino Uno Q as well. See [`docs/hardware/`](docs/hardware/overview.md)
+for the supported devices.
 
 ## One server, one port: `http://localhost:3000`
 
@@ -45,7 +51,7 @@ boot and restart on failure. Unit files live in this repo at
 `deploy/systemd/*.service.in` (not `/etc/systemd/system/` directly) so changes
 go through git like everything else. They're templates: `install-systemd.sh`
 fills in the current user, repo path, and Bun/uv locations (override with
-`BUN=` / `UV=`), so it works on any machine, not just the Pi's `pi` account.
+`BUN=` / `UV=`), so it works on any machine and user account.
 
 ### Install / update
 
@@ -55,15 +61,15 @@ fills in the current user, repo path, and Bun/uv locations (override with
 
 This is the deploy step. It builds the frontend (`frontend/dist`), copies the
 unit files into `/etc/systemd/system/`, reloads systemd, and (re)starts both
-services. Safe to re-run any time -- after `git pull`, or after hand-editing a
-file in `deploy/systemd/`. Needs `sudo`. Pass `--no-build` to skip the
+services. Safe to re-run any time -- after `git pull`, or after editing a
+template in `deploy/systemd/`. Needs `sudo`. Pass `--no-build` to skip the
 frontend build (e.g. only a unit file changed).
 
 ### Services
 
 | Unit | What it runs | Notes |
 |---|---|---|
-| `rcflower-backend.service` | `bun run start` in `backend/` | **Prod mode**: API + prebuilt `frontend/dist` on :3000. No Vite process on the Pi. Frontend changes need a rebuild -- re-run `install-systemd.sh`. |
+| `rcflower-backend.service` | `bun run start` in `backend/` | **Prod mode**: API + prebuilt `frontend/dist` on :3000. No Vite process on the device. Frontend changes need a rebuild -- re-run `install-systemd.sh`. |
 | `rcflower-detect.service` | `uv run --no-dev python -u detect.py --config detect-config.prod.yaml` in `python/` | Person-only detection (headless). POSTs to the backend are best-effort, so this doesn't hard-depend on the backend being up. |
 
 ### Inspecting logs
@@ -93,9 +99,11 @@ sudo systemctl status rcflower-backend rcflower-detect   # state + last few log 
 
 Both are `enable`d (`WantedBy=multi-user.target`), so they start automatically
 on boot, and `Restart=on-failure` (capped at 5 restarts / 60s) brings them
-back if they crash -- e.g. `rcflower-detect` restarts on its own if the
-camera is unplugged and replugged, since `detect.py` raises if it can't open
-the camera.
+back if they crash. If `detect.py` can't open the camera at startup it logs
+an `ERROR` line and exits 1, so systemd retries; after 5 failures in 60s the
+unit stays `failed` until you plug the camera in and run
+`sudo systemctl reset-failed rcflower-detect && sudo systemctl restart rcflower-detect`.
+Check `journalctl -u rcflower-detect` for the reason.
 
 To stop a service from starting on boot without touching the unit file:
 
@@ -115,9 +123,8 @@ lsusb                        # confirm the webcam shows up
 ls -la /dev/video*
 ```
 
-If the index changes, update `--camera` in
-`deploy/systemd/rcflower-detect.service.in` and re-run
-`./deploy/install-systemd.sh`.
+If the index changes, set `camera.source` in `python/detect-config.prod.yaml`
+(e.g. `camera:` / `  source: 1`) and `sudo systemctl restart rcflower-detect`.
 
 ## Licensing
 

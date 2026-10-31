@@ -42,7 +42,7 @@ def build_state(
     ``timestamp`` is retained for backward compatibility and equals ``capturedAt``.
     ``capturedAt`` / ``inferredAt`` are stamped around capture and inference;
     ``sentAt`` is stamped immediately before the POST. These are Unix seconds
-    on the shared Pi clock, allowing the backend to expose capture-to-receipt
+    on the shared device clock, allowing the backend to expose capture-to-receipt
     latency.
 
     ``frame_size`` ([w, h]) and ``roi`` ([x1, y1, x2, y2], frame pixels) describe
