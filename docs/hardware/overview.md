@@ -11,3 +11,10 @@ the per-device docs; this page only says which doc to read.
 
 Measurements and design docs (`docs/design/`) assume the Pi 4B unless they say
 otherwise.
+
+## How the flower is displayed
+
+The 3D flower is rendered client-side, by whichever browser opens the page.
+Normally a display is attached to the single-board computer and a browser tab
+is opened on `http://127.0.0.1:3000/live` (`frontend/src/FlowerLive.tsx`).
+Since it's just a web page, any mobile device can open it too.

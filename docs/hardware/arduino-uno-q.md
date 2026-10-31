@@ -6,8 +6,19 @@ servicing. Like that doc, this one should hold physical facts and *measured*
 numbers only; mark anything unmeasured as such rather than copying a Pi
 number across.
 
-Hostname `porygon-q`. Uses the same USB webcam as the Pi — see
-[camera.md](camera.md).
+Runs a second instance of RC Flower while the Pi 4B is out for servicing.
+Uses the same USB webcam as the Pi — see [camera.md](camera.md) — but it is
+**not connected yet**, so `rcflower-detect` currently fails at startup with
+`CameraNotFoundError` and ML inference on this board is **untested**.
+
+## Deployment host
+
+- `arduino@porygon-q` (the Uno Q's default user), repo at
+  `/home/arduino/rcflower`.
+- Public via a Tailscale Funnel at https://flower2.recurse.com/. The tailnet
+  hostname itself is deliberately not recorded in this repo.
+- Same two systemd services as the Pi, rendered for this user and path by
+  `deploy/install-systemd.sh` (no unit edits needed).
 
 ## Device
 
@@ -17,14 +28,13 @@ version, and any hardware video encode/decode.
 
 ## Differences from the Pi 4B
 
-TODO: what changes for running RC Flower, e.g.:
+Known so far: the user (`arduino`, not `pi`) and repo path
+(`/home/arduino/rcflower`) differ, which is why the systemd units are
+templates. Still TODO, once the camera is connected:
 
-- Deployment: user, repo path, and anything else that differs from
-  `kirwinpi` (the systemd units are rendered per machine by
-  `deploy/install-systemd.sh`, so these shouldn't need unit edits).
 - Camera: device node / `camera.source` index.
-- Inference: whether `use_vulkan` and `cpu_threads` defaults still make sense.
-- Network reachability (Tailscale funnel or not).
+- Inference: whether the `use_vulkan` and `cpu_threads` defaults still make
+  sense, and whether the NCNN/OpenCV wheels behave the same on this CPU.
 
 ## Known resource baseline
 
