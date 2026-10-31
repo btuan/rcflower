@@ -3,14 +3,14 @@
 Status: **living notes** — some items below are tried-and-concluded
 experiments, some are still-open ideas. Exported from a Google Doc and
 reorganized; update the relevant bullet in place when an idea gets tried
-rather than leaving it looking open. See `docs/hardware.md` for the device
+rather than leaving it looking open. See `docs/hardware/overview.md` for the device
 specs referenced throughout, and
 `docs/design/video-and-annotation-pipeline.md` for the video/annotation
 transport work, which shares the same GPU/H.264-encoder facts.
 
 ## System background
 
-- Device: Raspberry Pi 4 Model B — see `docs/hardware.md` for the full
+- Device: Raspberry Pi 4 Model B — see `docs/hardware/raspberry-pi-4b.md` and `docs/hardware/camera.md` for the full
   chipset/GPU/camera specs.
 - RC Flower runs as two systemd services:
   - `rcflower-backend` — web server (Bun/TypeScript).
@@ -19,7 +19,7 @@ transport work, which shares the same GPU/H.264-encoder facts.
 ## Problem
 
 - `rcflower-detect` consumes a lot of CPU, and possibly a lot of RAM too —
-  see `docs/hardware.md` for the current measured baseline (numbers below
+  see `docs/hardware/raspberry-pi-4b.md` for the current measured baseline (numbers below
   are what originally motivated this doc; check that file for what's true
   now before relying on a specific figure).
 - At the original ~300%-CPU baseline, this made it hard to run other heavy
@@ -30,7 +30,7 @@ transport work, which shares the same GPU/H.264-encoder facts.
   processes now works.
 - It may also increase power draw (CPUs reduce power consumption at low
   utilization), which is bad for the environment and doesn't spark joy 🙁 —
-  see the preliminary temperature comparison in `docs/hardware.md`.
+  see the preliminary temperature comparison in `docs/hardware/raspberry-pi-4b.md`.
 
 ## Approaches we've investigated
 
@@ -43,7 +43,7 @@ transport work, which shares the same GPU/H.264-encoder facts.
     must be enabled via a delegate, which is complicated to build.
   - **Result: the GPU path is consistently slower than CPU**, in every
     config tested so far — most recently 1.7 fps GPU vs. 9-10 fps CPU (see
-    `docs/hardware.md`, "Known resource baseline", for the current numbers
+    `docs/hardware/raspberry-pi-4b.md`, "Known resource baseline", for the current numbers
     and an earlier config's numbers for comparison). Some hypotheses on why:
     - Unsupported arithmetic subgroup ops may force layers that need them
       (e.g. maxpool, softmax) either to fall back to a CPU implementation
@@ -57,10 +57,10 @@ transport work, which shares the same GPU/H.264-encoder facts.
     - Lower raw throughput: VideoCore GPUs have fewer ALUs for general-purpose
       compute relative to other GPUs — the VC6 has 8 QPUs containing 2 ALUs
       each, for a peak of 32 GFLOP/s at 500MHz. The GPU code path stayed in
-      the codebase but disabled by default. See `docs/hardware.md`, "Compute
+      the codebase but disabled by default. See `docs/hardware/raspberry-pi-4b.md`, "Compute
       capability limits", for detailed CPU and GPU performance estimates.
     - Preliminary evidence the GPU may still win on performance-per-watt
-      despite being slower: `docs/hardware.md` has an early, not-yet-
+      despite being slower: `docs/hardware/raspberry-pi-4b.md` has an early, not-yet-
       controlled temperature comparison (~54°C CPU vs. ~45°C GPU).
   - **Update, tested on hardware: upgrading the Mesa driver did not help.**
     The original hypothesis was that Mesa 25.3.0+ adds arithmetic subgroup
@@ -70,11 +70,11 @@ transport work, which shares the same GPU/H.264-encoder facts.
     at `/home/pi/mesa-install/...`) to test this — no measurable improvement
     in inference speed was observed, and the VC6 still doesn't appear to
     support arithmetic subgroup ops even with the upgraded driver (see
-    `docs/hardware.md`, "Compute capability limits"). GPU inference stays
+    `docs/hardware/raspberry-pi-4b.md`, "Compute capability limits"). GPU inference stays
     disabled by default; no need to re-test this specific hypothesis without
     new evidence.
 - **AI hardware accelerator**: the Hailo AI HAT+ is not compatible with our
-  current device (4B) — see `docs/hardware.md`.
+  current device (4B) — see `docs/hardware/raspberry-pi-4b.md`.
 
 ### Software-level model optimization
 
@@ -85,7 +85,7 @@ transport work, which shares the same GPU/H.264-encoder facts.
       supports the SIMD vector types `float32x2_t`/`float32x4_t`, which NCNN
       should be using under the hood.
     - **Float16** would ideally double inference speed (2x elements per CPU
-      cycle), but Cortex-A72 has no fp16 SIMD support (see `docs/hardware.md`,
+      cycle), but Cortex-A72 has no fp16 SIMD support (see `docs/hardware/raspberry-pi-4b.md`,
       "Compute capability limits") — values would be silently promoted to
       float32, negating the benefit.
     - **Int8** is the only viable quantized format: supported by ARMv8.0 and
@@ -127,7 +127,7 @@ transport work, which shares the same GPU/H.264-encoder facts.
   measuring before investing effort.
 - Idea, not yet started: request a smaller uncompressed resolution directly
   from the camera (UVC format negotiation) instead of always capturing at
-  640×480 — the camera's max uncompressed resolution, see `docs/hardware.md`
+  640×480 — the camera's max uncompressed resolution, see `docs/hardware/camera.md`
   — and downscaling to the model input size in software. Would cut both USB
   bandwidth and `cv2.resize` cost, independent of which inference backend
   (CPU/GPU) is used.
