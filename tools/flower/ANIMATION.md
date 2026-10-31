@@ -114,7 +114,9 @@ function step(dt, gDevice, aDevice) {
 }
 ```
 
-Cost: 27 bones × 2 substeps, trivially cheap on the Pi's browser client (the phone).
+Cost: 27 bones × 2 substeps, trivially cheap for the browser that runs the simulation
+and renders the model client-side -- a phone on `/flower-shake`, or the display attached
+to the single-board computer on `/live`.
 
 ## Petal shedding (implemented)
 

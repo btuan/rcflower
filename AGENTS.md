@@ -86,13 +86,22 @@ bun run build:frontend && bun run start  # prod, :3000
 
 ## Deployment
 
-- Runs on a Raspberry Pi 4B (`kirwinpi`), repo at `/home/pi/code/rcflower`,
-  kept in sync with `origin/main` via `git pull`. Deploy = `git pull &&
-  ./deploy/install-systemd.sh` (builds `frontend/dist`, restarts the units).
-  The backend unit runs prod mode, so a frontend change is not live until
-  that script has rebuilt it.
+- Two hosts run this code (specs: `docs/hardware/overview.md`). Each has its
+  own checkout, kept in sync with `origin/main` via `git pull`:
+
+  | Host | Device | `user@host` | Repo path | Public via Tailscale Funnel |
+  | --- | --- | --- | --- | --- |
+  | `kirwinpi` | Raspberry Pi 4B (reference) | `pi@kirwinpi` | `/home/pi/code/rcflower` | yes |
+  | `porygon-q` | Arduino Uno Q (second instance while the Pi is out for servicing) | `arduino@porygon-q` | `/home/arduino/rcflower` | yes -- https://flower2.recurse.com/ |
+
+  Don't commit tailnet hostnames (`*.ts.net`) or other tailnet details to this
+  repo; per-machine values go in gitignored `.env.local` files.
+- Deploy (on the host) = `git pull && ./deploy/install-systemd.sh` (builds
+  `frontend/dist`, renders and restarts the units for the current user and
+  checkout path). The backend unit runs prod mode, so a frontend change is not
+  live until that script has rebuilt it.
 - Bun is installed at `~/.bun/bin/bun`. `~/.bashrc` only loads for interactive
-  shells, so systemd units / `ssh pi@kirwinpi 'bun ...'` must use the full path
+  shells, so systemd units / `ssh <user@host> 'bun ...'` must use the full path
   or set `PATH` explicitly.
 
 ## Conventions
