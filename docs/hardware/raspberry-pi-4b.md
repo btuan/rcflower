@@ -1,9 +1,13 @@
-# Hardware & deployment environment
+# Raspberry Pi 4B
 
-Status: **reference** — physical facts about the deployed device and
-measured baselines, not proposals. Update this file when a fact here goes
-stale; don't let it drift the way "Raspberry Pi 4B" (with no other specifics)
-had drifted into being the only hardware fact written down anywhere.
+Status: **reference** — physical facts about the Raspberry Pi 4B and
+measured baselines on it, not proposals. This is the project's **reference
+hardware environment**: the measurements and capability limits here are what
+the design docs build on. See [overview.md](overview.md) for the other
+supported devices and [camera.md](camera.md) for the webcam. Update this file
+when a fact here goes stale; don't let it drift the way "Raspberry Pi 4B"
+(with no other specifics) had drifted into being the only hardware fact
+written down anywhere.
 
 ## Device
 
@@ -15,31 +19,6 @@ had drifted into being the only hardware fact written down anywhere.
       decode (4Kp60).
   - The Hailo AI HAT+ is **not compatible** with the 4B (it needs a 5) —
     already ruled out, no need to re-investigate.
-
-## Camera
-
-A **USB webcam** — [Arducam 1080P Low Light WDR USB Camera Module](https://www.amazon.com/dp/B07ZS75KZR)
-(Sony IMX291 sensor, 2MP, 160° fisheye lens, USB2.0 UVC).
-[IMX291 datasheet (Arducam)](https://blog.arducam.com/downloads/modules/IMX291/B0261_IMX291_Fisheye_Camera_Datasheet.pdf).
-Captured via OpenCV's `cv2.VideoCapture` (`python/camera.py`) — **not** the
-Pi Camera Module / libcamera stack. This matters beyond trivia: the SoC's
-hardware H.264 encoder (above) is normally reached through
-`rpicam-vid`/libcamera tooling built around that other camera stack. Getting
-a USB-webcam frame buffer into it instead needs V4L2 M2M plumbing
-(GStreamer's `v4l2h264enc`, ffmpeg's `-c:v h264_v4l2m2m`) — not something
-`cv2` hands you directly. See `docs/design/video-and-annotation-pipeline.md`.
-
-Per the datasheet, the camera can send **uncompressed YUY2 up to
-640×480@30fps** over USB; reaching 1080p requires an on-camera compressed
-format (MJPEG or H.264) instead. `detect.py`/`camera.py` currently request
-640×480 — the max *uncompressed* resolution — and downscale to the model's
-input size (224px or 320px, depending on the exported model) in software,
-in `camera.py`'s `preprocess()`, rather than requesting a smaller
-uncompressed resolution directly from the camera. Since the camera's own
-ISP can likely output smaller YUY2 frames directly (standard UVC format
-negotiation), this is a candidate optimization — less USB bandwidth and no
-`cv2.resize` cost for a larger-than-needed frame. See
-`docs/design/ml-inference-optimization.md`.
 
 ## Compute capability limits
 
@@ -127,6 +106,8 @@ rather than appending a newer number alongside a stale one.
 
 ## See also
 
+- [camera.md](camera.md) — the USB webcam (same on every device).
+- [overview.md](overview.md) — all supported devices.
 - `docs/design/ml-inference-optimization.md` — CV pipeline optimization
   ideas and experiment history.
 - `docs/design/video-and-annotation-pipeline.md` — video/annotation
