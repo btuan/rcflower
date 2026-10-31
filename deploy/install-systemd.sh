@@ -37,7 +37,7 @@ fi
 
 if [[ "${1:-}" != "--no-build" ]]; then
   # The backend unit runs in prod mode and serves frontend/dist; there is no
-  # Vite process on the Pi, so the static build has to happen here.
+  # Vite process on the device, so the static build has to happen here.
   echo "Building frontend -> frontend/dist"
   (cd "$REPO_ROOT/frontend" && npm ci --silent && "$BUN" run build)
   (cd "$REPO_ROOT/backend" && "$BUN" install --silent)

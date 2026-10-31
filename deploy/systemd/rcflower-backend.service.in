@@ -3,7 +3,7 @@
 # script (not `systemctl edit`) so the repo stays the source of truth.
 #
 # PROD mode: Bun serves the API + the prebuilt frontend from frontend/dist.
-# There is no Vite process on the Pi. install-systemd.sh runs the frontend
+# There is no Vite process on the device. install-systemd.sh runs the frontend
 # build before restarting this unit, so after `git pull` just re-run it.
 [Unit]
 Description=rcflower backend (Bun, prod -- API + static frontend/dist)

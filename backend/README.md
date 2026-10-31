@@ -54,7 +54,7 @@ Bun HTTP server. Single entry point for the app.
   p50/p95/max per stage. Backs the `/debug` frontend page
   (`frontend/src/Debug.tsx`), which also opens its own SSE connection and
   layers on the browser-side leg (broadcast→browser) using an estimated
-  clock offset, since the browser is a separate device from the Pi running
+  clock offset, since the browser is a separate device from the machine running
   Python + this backend.
 - everything else — in dev, reverse-proxied to Vite; in prod, served from `frontend/dist` (SPA fallback)
 
@@ -95,4 +95,4 @@ See "One server, one port" in the root README for the why.
 
 Config is in `.env` (committed defaults); override per-machine in `.env.local`
 (gitignored). TLS is expected to be terminated by a reverse proxy in front
-(e.g. `tailscale serve` on the Pi).
+(e.g. `tailscale serve` on the device).

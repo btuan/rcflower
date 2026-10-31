@@ -18,7 +18,7 @@ export type FlowerScene = {
 };
 
 export type FlowerSceneOptions = {
-  /** WebGLRenderer antialias flag. Default true; pass false on constrained hardware (e.g. the Pi kiosk). */
+  /** WebGLRenderer antialias flag. Default true; pass false on constrained hardware (e.g. a kiosk display). */
   antialias?: boolean;
   /** Cap on devicePixelRatio. Default `min(devicePixelRatio, 2)`; pass 1 to force no supersampling. */
   pixelRatio?: number;

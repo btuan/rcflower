@@ -76,7 +76,7 @@ const fmt = (ms: number | null): string => (ms === null ? "—" : `${ms.toFixed(
 const delta = (a: number | null | undefined, b: number | null | undefined): number | null =>
   a == null || b == null ? null : b - a;
 
-/** Wall-clock timestamp for a transition: Pi-side capturedAt if present, else the browser's. */
+/** Wall-clock timestamp for a transition: device-side capturedAt if present, else the browser's. */
 function transitionTimestamp(tr: Transition): { ms: number; fellBack: boolean } {
   if (tr.t?.capturedAt != null) return { ms: tr.t.capturedAt, fellBack: false };
   return { ms: tr.browserReceivedAt, fellBack: true };
@@ -404,7 +404,7 @@ function DebugContent({ name }: { name: string }) {
     clockRef.current = clock;
   }, [clock]);
 
-  // Clock offset estimate, refreshed periodically -- Pi and browser drift, so
+  // Clock offset estimate, refreshed periodically -- the device and browser clocks drift, so
   // a one-shot estimate at page load would slowly go stale on a page left open.
   useEffect(() => {
     let cancelled = false;
@@ -573,7 +573,7 @@ function DebugContent({ name }: { name: string }) {
                     {fellBack && (
                       <span
                         className="ml-1 text-neutral-500"
-                        title="Pi-side capturedAt was unavailable; showing browserReceivedAt instead"
+                        title="Device-side capturedAt was unavailable; showing browserReceivedAt instead"
                       >
                         (browser)
                       </span>
@@ -603,7 +603,7 @@ function DebugContent({ name }: { name: string }) {
       </div>
 
       <p className="mt-6 max-w-2xl text-neutral-500">
-        Python and the backend share a clock (same Pi), so capture/infer/sent/received/broadcast
+        Python and the backend share a clock (same device), so capture/infer/sent/received/broadcast
         deltas need no correction. The browser is a separate device -- the "broadcast→browser" and
         "total" columns use browserReceivedAt corrected by the estimated clock offset above
         (NTP-style: probe /api/time a few times, take the min-RTT sample, offset = serverNow -

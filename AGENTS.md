@@ -33,15 +33,15 @@ python/detect.py --headless  ->  POST /api/detections  ->  backend  ->  GET /api
   `mood` SSE events now carry `{ mood, health, wateredAt }` (health decays
   continuously, re-sent every 5s). `GET /api/detections/latest` backs the
   `/debug` page's detection-box overlay. The camera snapshot route was removed
-  on purpose: the Pi is public via tailscale funnel, so no camera pixels leave
-  the Pi until the debug routes sit behind auth (`detect.py`'s
+  on purpose: the deployed device can be public via tailscale funnel, so no camera pixels leave
+  the device until the debug routes sit behind auth (`detect.py`'s
   `output.snapshot_path` config key is off by default for the same reason).
 - Detection always stays a separate Python service. The backend never runs CV.
 - Latency across the pipeline (capture -> infer -> sent -> received ->
   broadcast -> browser) is tracked in `backend/src/latency.ts` (in-memory ring
   buffer) and surfaced at `/debug` in the frontend
   (`GET /api/debug/latency`, `GET /api/time`). Python and the backend share a
-  clock (same Pi); the browser is a separate device, so `/debug` estimates
+  clock (same device); the browser is a separate device, so `/debug` estimates
   the clock offset itself (NTP-style probe of `/api/time`).
 
 ## Backend
@@ -61,7 +61,7 @@ python/detect.py --headless  ->  POST /api/detections  ->  backend  ->  GET /api
   websocket in the browser (`HMR_CLIENT_PORT`), because Bun doesn't proxy
   websockets.
 - Prod (`bun run start`) has no Vite process: `bun run build:frontend` runs
-  `vite build` once and Bun serves `frontend/dist`. The Pi runs prod.
+  `vite build` once and Bun serves `frontend/dist`. The deployed device runs prod.
 - `bun run typecheck` before committing backend changes.
 
 ```sh
@@ -82,7 +82,7 @@ bun run build:frontend && bun run start  # prod, :3000
   host check; per-machine values go in `frontend/.env.local`.
 - No HTTPS in the dev toolchain (mkcert was removed). iOS device-orientation
   needs a secure context — terminate TLS with a reverse proxy in front
-  (e.g. `tailscale serve` on the Pi).
+  (e.g. `tailscale serve` on the device).
 
 ## Deployment
 
