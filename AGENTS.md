@@ -91,7 +91,7 @@ bun run build:frontend && bun run start  # prod, :3000
 
   | Host | Device | `user@host` | Repo path | Public via Tailscale Funnel |
   | --- | --- | --- | --- | --- |
-  | `kirwinpi` | Raspberry Pi 4B (reference) | `pi@kirwinpi` | `/home/pi/code/rcflower` | yes |
+  | `kirwinpi` | Raspberry Pi 4B (reference) | `pi@kirwinpi` | `/home/pi/code/rcflower` | yes -- https://flower.recurse.com/ |
   | `porygon-q` | Arduino Uno Q (second instance while the Pi is out for servicing) | `arduino@porygon-q` | `/home/arduino/rcflower` | yes -- https://flower2.recurse.com/ |
 
   Don't commit tailnet hostnames (`*.ts.net`) or other tailnet details to this
