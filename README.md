@@ -12,10 +12,10 @@ environment:
   [`backend/README.md`](backend/README.md).
 - **`frontend/`** — the UI (React), compiled by Vite, served by the backend.
 
-In principle, this software can be run on any single-board computer - though
-originally developed for the Raspberry Pi 4B, we are making changes so it can
-be run on the Arduino Uno Q as well. See [`docs/hardware/`](docs/hardware/overview.md)
-for the supported devices.
+In principle, this software can be run on any single-board computer. It was
+originally developed for the Raspberry Pi 4B (the reference environment) and
+also supports the Arduino Uno Q, though not every feature works there yet. See
+[`docs/hardware/`](docs/hardware/overview.md) for the supported devices.
 
 ## One server, one port: `http://localhost:3000`
 

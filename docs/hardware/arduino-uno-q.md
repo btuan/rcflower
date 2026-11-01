@@ -1,15 +1,17 @@
 # Arduino Uno Q
 
-Status: **stub** — to be filled in. Written as a stand-in host while the
-reference device ([raspberry-pi-4b.md](raspberry-pi-4b.md)) is out for
-servicing. Like that doc, this one should hold physical facts and *measured*
-numbers only; mark anything unmeasured as such rather than copying a Pi
-number across.
+Status: **stub** — hardware specs and measured baselines are still to be
+filled in. Like [raspberry-pi-4b.md](raspberry-pi-4b.md), this doc should hold
+physical facts and *measured* numbers only; mark anything unmeasured as such
+rather than copying a Pi number across.
 
-Runs a second instance of RC Flower while the Pi 4B is out for servicing.
-Uses the same USB webcam as the Pi — see [camera.md](camera.md) — but it is
-**not connected yet**, so `rcflower-detect` currently fails at startup with
-`CameraNotFoundError` and ML inference on this board is **untested**.
+The Uno Q is a supported environment alongside the Pi 4B (see
+[overview.md](overview.md)). As of 2026-11-01 the Pi is out for servicing with
+no return date, so the Uno Q is currently the only device running a deployed
+instance. It uses the same USB webcam as the Pi — see [camera.md](camera.md) —
+but it is **not connected yet**, so `rcflower-detect` currently fails at
+startup with `CameraNotFoundError` and ML inference on this board is
+**untested**.
 
 ## Deployment host
 
