@@ -39,7 +39,7 @@ Nothing below has been timed on the Uno Q. Before the larger items:
 | `index-*.js` (entry) | ~350 KB | ~116-118 KB gzip |
 | Large shared chunk (almost certainly three.js, oddly named `flower_dead-*.js`) | ~615 KB | ~152-155 KB gzip |
 | One mood `.glb` | ~880-981 KB | ~453 KB gzip (for the 981 KB one) |
-| Flower WebPs (2048 px) | already compressed | not compressible further |
+| Flower WebPs (2048 px) | ~424 KB mean | gzip doesn't help; other image formats do, see "Image formats" |
 | `tsc -b` | ~3.9 s (possibly a warm incremental run) | |
 | `vite build` | ~1.5 s | |
 
@@ -78,10 +78,95 @@ detector is running before assuming it needs work.
 | F1 | **Lazy-load every route.** `main.tsx` imports all routes eagerly except `FlowerShake` and `FlowerLive`, so `/live` also downloads and parses `/debug`, `/flower` and the rest. Also remove the leftover `console.log(Flower)` in `main.tsx`, which keeps `Flower` in the entry bundle | High for the kiosk: less JS to parse on a slow CPU | Low |
 | F2 | **Check what's in the ~615 KB chunk.** If it's three.js, confirm only the used parts are included (tree-shaking), and give it a sensible chunk name. A visualizer settles this. Vite's >500 kB warning already flags it | Medium-high. Cutting even a third helps parse time | Low to investigate; medium if it needs import changes |
 | F3 | **Rebuilding the scene on every mood change.** `FlowerLive`'s main `useEffect` depends on `[mood]`, so a change tears down and recreates the renderer, scene and model. The first render also loads the `neutral` model, then loads a second once the SSE mood arrives. Keep one renderer and swap only the model, and/or wait for the initial mood before choosing a model | Medium-high on an in-order CPU, and avoids a visible flash | Medium. Touches the render lifecycle; test on the device |
-| F4 | **Shrink the `.glb` files** (~0.9-1 MB each, four of them). Inspect with `gltf-transform inspect` to see whether geometry or textures dominate, then apply meshopt or Draco compression | Medium-high: the heaviest assets on the page | Medium. Needs the decoder wired into `GLTFLoader` and a visual check |
+| F4 | **Shrink the `.glb` files** (~0.9-1 MB each, four of them). They have no textures, only float32 vertex data, so the options are quantization and mesh compression; see "3D model formats" below | Medium-high: the heaviest assets on the page | Low (quantization) to medium (meshopt, Draco). A visual check and a test of `flowerSpring`'s bone lookups are needed |
 | F5 | **One geometry, four poses** instead of four meshes ([`tools/flower/ANIMATION.md`](../../tools/flower/ANIMATION.md), open decision 1). Roughly a 4x download cut and smoother mood transitions | High, but largest change | High: changes the model exporter and runtime. Do after F3/F4, if at all |
 | F6 | Cap the render loop (for example 30 fps) or pause when nothing is moving | Unknown: the renderer already uses `antialias: false` and `pixelRatio: 1`. Measure CPU/GPU use on the device first | Low |
-| F7 | Serve smaller flower WebPs than 2048 px where the display is smaller (`srcset`, or lower-resolution variants) | Low-medium: depends on where they're used | Medium |
+| F7 | **Build AVIF alongside the WebPs** and serve it with `<picture>` (WebP as the fallback). Roughly a third smaller at matched PSNR in the measurements below. Also serve smaller sizes than 2048 px where the display is smaller (`srcset`) | Medium for remote visitors. Depends on where the images are used; check which pages load them. AVIF decode cost on the device is unmeasured | Low-medium |
+
+## Image formats (measured)
+
+The flower WebPs are generated from the 2048 px PNGs in `assets/flower/` by
+`frontend/scripts/gen-flower-images.mjs` (sharp, WebP quality 82). Measured
+2026-11-06 on the dev machine with sharp 0.35 (libaom/libwebp) and ImageMagick
+7.1.2 (libjxl 0.12), mean over the four mood images. Quality is **PSNR against
+the resized source** (premultiplied RGBA), a rough proxy, not a perceptual
+metric. Compare sizes at similar PSNR, not at similar "quality" numbers, since
+each codec's quality scale differs.
+
+| Width | WebP q82 (current) | AVIF q60, 4:4:4 | AVIF q70, 4:4:4 | AVIF q50, 4:2:0 | JXL d1.0 |
+| --- | --- | --- | --- | --- | --- |
+| 256 | 15.1 KB, 46.9 dB | 9.2 KB, 46.2 dB | 10.8 KB, 47.9 dB | 6.2 KB, 43.3 dB | 20.1 KB, 46.1 dB |
+| 512 | 43.7 KB, 49.4 dB | 22.8 KB, 47.9 dB | 27.1 KB, 49.5 dB | 15.0 KB, 45.1 dB | 58.1 KB, 49.0 dB |
+| 1024 | 128.6 KB, 51.1 dB | 57.2 KB, 48.4 dB | 69.9 KB, 50.0 dB | 37.5 KB, 45.6 dB | 175.7 KB, 50.7 dB |
+| 2048 | 424.2 KB, 51.2 dB | 182.8 KB, 48.4 dB | 229.7 KB, 50.0 dB | 124.2 KB, 45.8 dB | 535.3 KB, 51.4 dB |
+
+(Full sweep including WebP q70, AVIF q50 4:4:4 and JXL d1.5/d2.5 was run; the
+columns above are the useful ones.)
+
+What it shows:
+- **AVIF beats WebP at every size here, including 256 px.** At 256 px, AVIF
+  q70 4:4:4 is 10.8 KB at 47.9 dB against WebP's 15.1 KB at 46.9 dB. The
+  "WebP wins on thumbnails" claim does not hold for these illustrations.
+  Matching WebP's quality needs something near AVIF q70 at 512 px and larger,
+  which is still roughly 35-45% smaller (230 KB vs 424 KB at 2048 px, at about
+  1 dB lower).
+- **4:4:4 costs about 15-20% more than 4:2:0** at the same quality setting
+  and raises PSNR by 1-2 dB here (flat colour edges are where chroma
+  subsampling shows). Worth keeping for these illustrations.
+- **JXL was larger than WebP at matched PSNR** in this run (20.1 vs 15.1 KB
+  at 256 px, 535 vs 424 KB at 2048 px) and 2-3x slower to encode. It's also the
+  least supported format in browsers. It might do better with tuned settings
+  (this used ImageMagick with `jxl:distance` and `effort=7`), but it isn't a
+  promising direction for these images.
+- **Encode time** is not an issue: images are generated by hand and
+  committed, not at deploy time (sharp AVIF ~0.8 s at 2048 px).
+
+Not measured and worth checking before committing to AVIF:
+- **Decode time on the Uno Q's browser.** AVIF decoding is software-only on
+  most ARM Linux browsers and is heavier than WebP, which matters more for a
+  large image on a slow CPU than for saved bytes on loopback.
+- **Visual quality by eye**, especially edges and the alpha channel.
+- **Where the images are used.** If the kiosk uses the GLB models and only
+  remote pages use the WebPs, the saving is for the remote visitors.
+
+## 3D model formats
+
+Compression in the 3D world is mostly glTF extensions, so keep `.glb` and add
+compression to it, rather than switching format. A plain `.glb` is already
+binary, but it stores vertex data uncompressed.
+
+What the current files contain (neutral mood; the others are similar): no
+images or textures at all, 14 skinned meshes and about 14,000 vertices, about
+84,000 indices, and `KHR_materials_specular` as the only extension. Each
+vertex is float32 `POSITION` (12 bytes), `NORMAL` (12), `COLOR_0` (12),
+`JOINTS_0` (4) and `WEIGHTS_0` (16), 56 bytes in all, so about 788 KB of the
+~958 KB binary chunk is vertex data and ~168 KB is 16-bit indices. **Texture
+compression (KTX2/Basis) does not apply**, and my earlier suggestion to check
+whether textures dominate was moot.
+
+| Option | What it does | Needs at runtime | Fit here |
+| --- | --- | --- | --- |
+| `KHR_mesh_quantization` | Stores positions as int16, normals and colours as 8-bit, weights as 8-bit, instead of float32. Lossy but visually negligible if ranges are sane | Nothing: three's `GLTFLoader` supports it natively | **Best first step.** My arithmetic estimate: ~24 bytes/vertex instead of 56, so the binary goes from ~958 KB to ~505 KB (about 47% smaller) before any other compression. Not measured by running it |
+| `EXT_meshopt_compression` ([meshoptimizer](https://github.com/zeux/meshoptimizer)) | Reorders and delta/entropy-codes vertex and index buffers. Designed to be applied on top of quantization, and to be followed by gzip/brotli. Handles skinning data | A small WASM decoder (`MeshoptDecoder` ships with three's examples); very fast decode | **Best fit for a weak CPU.** Typically cuts well past quantization alone; expect it to compress the skin weights very well, since they are smooth blends of two bones |
+| `KHR_draco_mesh_compression` ([Draco](https://google.github.io/draco/)) | Higher ratio on geometry, but slower to decode and it targets positions/normals/UVs; skin data compresses less well | `DRACOLoader` plus a WASM decoder (hundreds of KB) served from the backend | Probably not worth it: bigger decoder, slower decode on an in-order CPU, and little geometry to win on. Use only if meshopt falls short |
+| `KHR_texture_basisu` (KTX2) | GPU-compressed textures | Basis transcoder | N/A: no textures |
+| `.gltf` / `.obj` | Text formats | | Larger than `.glb`; not an option |
+| Custom or other binary formats (USDZ, FBX, ...) | | Custom loaders | No browser or three.js advantage over glTF; skip |
+
+Suggested path: run `gltf-transform quantize` then `gltf-transform meshopt`
+(and *not* `optimize`, which can merge meshes and prune the bones that
+`frontend/src/flowerSpring.ts` looks up by name), compare the sizes of the
+raw and gzipped results, load the result in `/flower-shake` and `/live`, and
+check that the bones still drive the pose. Wire `MeshoptDecoder` into the
+loaders in `FlowerLive.tsx` and `FlowerShake.tsx`. The four moods share the
+same rig, so this is also a good time to decide on "one geometry, four poses"
+(F5).
+
+Not run yet: I tried to run the gltf-transform CLI to get real numbers, but
+the one-off `npx` package download was blocked in this session. The estimates
+above are therefore arithmetic from the file's accessor layout, not
+measurements. Install `@gltf-transform/cli` once and run the commands above to
+replace them.
 
 ## Not recommended yet
 
