@@ -10,7 +10,7 @@ takes to need only Bun (plus `uv` for Python).
 | --- | --- | --- |
 | `frontend/package-lock.json` | Frontend lockfile (the frontend has no `bun.lock`) | npm |
 | `backend/package-lock.json` | Stray second lockfile next to `backend/bun.lock` | nothing (delete) |
-| `deploy/install-systemd.sh` | `npm ci --silent` in `frontend/`, plus a `command -v npm` prerequisite check | npm |
+| `deploy/install-systemd.sh` | `npm ci` in `frontend/` (skipped when `package-lock.json` is unchanged), plus a `command -v npm` prerequisite check | npm |
 | `frontend/package.json` | `flower-images` / `watering-can-images` scripts run `node scripts/*.mjs` (they import `sharp`) | node |
 | `frontend/README.md` | Scripts table says `npm run ...` (and lists `npm run images`, which no longer exists as a script name) | docs |
 | **Shebangs** in `frontend/node_modules/.bin` | `vite`, `vitest`, `tsc`, `eslint` all start with `#!/usr/bin/env node`, so `bun run build` runs them **under Node** unless told otherwise | node |
@@ -71,7 +71,7 @@ Costs:
    before deleting the old lockfile.
 2. Commit `frontend/bun.lock`; delete `frontend/package-lock.json` and
    `backend/package-lock.json`.
-3. `deploy/install-systemd.sh`: replace `npm ci --silent` with
+3. `deploy/install-systemd.sh`: replace the `npm ci` block (and its lockfile-hash skip) with
    `"$BUN" install --frozen-lockfile --silent`, drop the `npm` entry from the
    prerequisite check, and update the comment above it.
 4. `frontend/package.json`: change `node scripts/...` to `bun scripts/...`.

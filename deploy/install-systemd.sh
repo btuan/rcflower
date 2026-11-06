@@ -38,8 +38,23 @@ fi
 if [[ "${1:-}" != "--no-build" ]]; then
   # The backend unit runs in prod mode and serves frontend/dist; there is no
   # Vite process on the device, so the static build has to happen here.
+  #
+  # `npm ci` wipes node_modules and reinstalls everything (several minutes on
+  # the Uno Q), so skip it when package-lock.json is unchanged since the last
+  # successful install. The hash is stored inside node_modules, so deleting
+  # node_modules forces a reinstall.
+  FRONTEND_DIR="$REPO_ROOT/frontend"
+  LOCK_STAMP="$FRONTEND_DIR/node_modules/.package-lock.sha256"
+  lock_hash="$(sha256sum "$FRONTEND_DIR/package-lock.json" | cut -d' ' -f1)"
+  if [[ -f "$LOCK_STAMP" && "$(cat "$LOCK_STAMP")" == "$lock_hash" ]]; then
+    echo "Frontend dependencies up to date (package-lock.json unchanged); skipping npm ci"
+  else
+    echo "Installing frontend dependencies (npm ci; can take several minutes on slow devices)..."
+    (cd "$FRONTEND_DIR" && npm ci --no-audit --no-fund)
+    echo "$lock_hash" > "$LOCK_STAMP"
+  fi
   echo "Building frontend -> frontend/dist"
-  (cd "$REPO_ROOT/frontend" && npm ci --silent && "$BUN" run build)
+  (cd "$FRONTEND_DIR" && "$BUN" run build)
   (cd "$REPO_ROOT/backend" && "$BUN" install --silent)
 fi
 
