@@ -16,7 +16,17 @@ The CV side is covered separately in
 - Two audiences load the app, and they differ: the **kiosk** (a browser on the
   device itself, loading from loopback, so network size barely matters but
   parse/render cost does) and **remote visitors** (phones on the public
-  Funnel URL, where bytes over the wire matter too).
+  Funnel URL or the RC LAN, where bytes over the wire matter too).
+- **The main demo is a remote-visitor scenario.** The presenter (a Pixel 9)
+  opens `/live` on their phone while another person opens `/watering-can` on
+  theirs and tilts the screen to simulate watering the flower. `/live` loads
+  the JS bundles and a ~1 MB GLB (no 2D images); `/watering-can` loads the JS
+  bundles and the watering-can WebPs (upright and two pouring poses, in four
+  widths via `srcset`). Recurse Center users have capable phones and current
+  browsers, so decode speed on their side is not a concern; **bytes over the
+  wire on varied networks** (RC Wi-Fi with the device on the LAN, other Wi-Fi,
+  mobile data) are what the demo is sensitive to. That makes S1 (compression),
+  F4 (smaller GLBs) and F7 (AVIF) all demo-path items.
 
 ## Measure first
 
@@ -81,7 +91,7 @@ detector is running before assuming it needs work.
 | F4 | **Shrink the `.glb` files** (~0.9-1 MB each, four of them). They have no textures, only float32 vertex data, so the options are quantization and mesh compression; see "3D model formats" below | Medium-high: the heaviest assets on the page | Low (quantization) to medium (meshopt, Draco). A visual check and a test of `flowerSpring`'s bone lookups are needed |
 | F5 | **One geometry, four poses** instead of four meshes ([`tools/flower/ANIMATION.md`](../../tools/flower/ANIMATION.md), open decision 1). Roughly a 4x download cut and smoother mood transitions | High, but largest change | High: changes the model exporter and runtime. Do after F3/F4, if at all |
 | F6 | Cap the render loop (for example 30 fps) or pause when nothing is moving | Unknown: the renderer already uses `antialias: false` and `pixelRatio: 1`. Measure CPU/GPU use on the device first | Low |
-| F7 | **Build AVIF alongside the WebPs** and serve it with `<picture>` (WebP as the fallback). Roughly a third smaller at matched PSNR in the measurements below. Also serve smaller sizes than 2048 px where the display is smaller (`srcset`) | Medium for remote visitors only. The kiosk (`/live`) loads no 2D images, so it gains nothing; check which other pages load the WebPs | Low-medium |
+| F7 | **Build AVIF alongside the WebPs** and serve it with `<picture>` (WebP as the fallback). Roughly a third smaller at matched PSNR in the measurements below. Also serve smaller sizes than 2048 px where the display is smaller (`srcset`) | Medium-high for remote visitors: `/watering-can` (part of the demo), `/` and `/flower` load the WebPs. No effect on the kiosk (`/live`), which loads no 2D images | Low-medium |
 
 ## Image formats (measured)
 
@@ -110,9 +120,11 @@ What it shows:
   Matching WebP's quality needs something near AVIF q70 at 512 px and larger,
   which is still roughly 35-45% smaller (230 KB vs 424 KB at 2048 px, at about
   1 dB lower).
-- **4:4:4 costs about 15-20% more than 4:2:0** at the same quality setting
-  and raises PSNR by 1-2 dB here (flat colour edges are where chroma
-  subsampling shows). Worth keeping for these illustrations.
+- **4:4:4 costs 8-20% more than 4:2:0** at the same quality setting (more at
+  small sizes: 7.5 vs 6.2 KB at 256 px, 134 vs 124 KB at 2048 px) and raises
+  PSNR by only 0.2-0.9 dB (flat colour edges are where chroma subsampling
+  shows). PSNR is a blunt measure of chroma loss, so whether the
+  difference is visible is open; see "Chroma subsampling" below.
 - **JXL was larger than WebP at matched PSNR** in this run (20.1 vs 15.1 KB
   at 256 px, 535 vs 424 KB at 2048 px) and 2-3x slower to encode. It's also the
   least supported format in browsers. It might do better with tuned settings
@@ -123,14 +135,42 @@ What it shows:
 
 Scope: the kiosk only shows `/live` (`FlowerLive`), which currently loads no
 2D images, only a GLB rendered with WebGL. So **no image decoding happens on
-the device today, and the image-format work benefits remote visitors only**
-(phones on the public URL, the other pages). It does nothing for the kiosk.
+the device today, and the image-format work does nothing for the kiosk.** The
+WebPs are loaded by `Flower.tsx` and `Home.tsx` (the flower images) and
+`WateringCan.tsx` (the watering-can images), so AVIF helps `/`, `/flower` and
+`/watering-can`, which is part of the demo. The numbers above come from the
+four **flower** images only; the **watering-can** sources in
+`assets/watering_can/` haven't been measured yet, and should be before
+committing to a quality setting.
 
-Not measured and worth checking before committing to AVIF:
+**Decision: AVIF with WebP fallback is the format to adopt.** The audience
+has capable phones and current browsers (decode cost is not a concern), and
+bandwidth is what varies, so AVIF's ~35-45% saving is worth taking. Keep the
+WebPs as the `<picture>` fallback for browsers without AVIF; skip JXL.
+
+Still to check before shipping:
 - **Visual quality by eye**, especially edges and the alpha channel.
-- **Decode time on a slow phone**, if remote visitors on old hardware matter.
-  AVIF is software-decoded in most browsers and is heavier than WebP. (Not an
-  issue for the kiosk, per the scope above.)
+- **Which AVIF quality and chroma subsampling to use**, per the next section.
+  Pick by eye at the sizes the pages actually display.
+
+### Chroma subsampling: 4:4:4, 4:2:2 and 4:2:0
+
+Worth exploring all three; 4:2:0 is the smallest and 4:4:4 the sharpest, and
+4:2:2 sits between them. In the measurements above 4:2:0 at q50 is much smaller
+than 4:4:4 at q50 (8-20%) but loses 0.2-0.9 dB, and the loss concentrates on
+coloured edges.
+The fair comparison is by eye (and with a chroma-aware metric such as
+SSIMULACRA2 or Butteraugli) at the sizes the pages display, with quality
+raised for 4:2:0 until it matches.
+
+- Sharp's AVIF output (`chromaSubsampling`) only offers `4:2:0` and `4:4:4`.
+  **4:2:2 needs a different encoder**, such as `avifenc --yuv 422` (libavif)
+  or ImageMagick; I haven't run it.
+- Browser support is not uniform across the three: 4:2:0 is the AV1 Main
+  profile every AVIF-capable browser decodes, and 4:4:4 is High profile.
+  4:2:2 is in the Professional profile, which I believe is less commonly
+  hardware-accelerated and less thoroughly tested in browsers. Test it on the
+  target phones (a Pixel 9 at least, plus iOS Safari) before depending on it.
 
 ### Future: decoding 2D images on the Uno Q's GPU
 
@@ -204,8 +244,11 @@ replace them.
 
 1. Time the deploy steps and profile `/live` on the Uno Q ("Measure first").
 2. B2, F1: small, low risk, benefit both build time and the kiosk.
-3. S1 if remote visitors on the public URL matter.
-4. F2/F4 once a bundle visualizer and `gltf-transform inspect` show where the
-   bytes are.
-5. F3 for scene rebuilds.
-6. B4 / B5 / B6, depending on what the timings say.
+3. S1 (precompressed static files) and F4 (quantized/meshopt GLBs): these
+   shrink what the demo phones download on `/live`.
+4. F7 (AVIF with WebP fallback, after trying 4:2:0 / 4:2:2 / 4:4:4 and
+   measuring the watering-can images): shrinks `/watering-can`, the other
+   half of the demo.
+5. F2 once a bundle visualizer shows where the JS bytes are.
+6. F3 for scene rebuilds.
+7. B4 / B5 / B6, depending on what the timings say.
