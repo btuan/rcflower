@@ -17,16 +17,17 @@ The CV side is covered separately in
   device itself, loading from loopback, so network size barely matters but
   parse/render cost does) and **remote visitors** (phones on the public
   Funnel URL or the RC LAN, where bytes over the wire matter too).
-- **The main demo is a remote-visitor scenario.** The presenter (a Pixel 9)
-  opens `/live` on their phone while another person opens `/watering-can` on
-  theirs and tilts the screen to simulate watering the flower. `/live` loads
-  the JS bundles and a ~1 MB GLB (no 2D images); `/watering-can` loads the JS
-  bundles and the watering-can WebPs (upright and two pouring poses, in four
-  widths via `srcset`). Recurse Center users have capable phones and current
-  browsers, so decode speed on their side is not a concern; **bytes over the
-  wire on varied networks** (RC Wi-Fi with the device on the LAN, other Wi-Fi,
-  mobile data) are what the demo is sensitive to. That makes S1 (compression),
-  F4 (smaller GLBs) and F7 (AVIF) all demo-path items.
+- **The main demo is a remote-visitor scenario.** The presenter opens `/live`
+  on one device (a laptop or a smartphone such as a Pixel 9) while another
+  person opens `/watering-can` on theirs and tilts the screen to simulate
+  watering the flower. `/live` loads the JS bundles and a ~1 MB GLB (no 2D
+  images); `/watering-can` loads the JS bundles and the watering-can WebPs
+  (upright and two pouring poses, in four widths via `srcset`). Recurse Center
+  users have capable phones and current browsers, so decode speed on their
+  side is not a concern. **Bytes over the wire on varied networks** (RC Wi-Fi
+  with the device on the LAN, other Wi-Fi, mobile data) are what the demo is
+  sensitive to. That makes S1 (compression), F4 (smaller GLBs) and F7 (AVIF)
+  all demo-path items.
 
 ## Measure first
 
@@ -156,12 +157,17 @@ Still to check before shipping:
 ### Chroma subsampling: 4:4:4, 4:2:2 and 4:2:0
 
 Worth exploring all three; 4:2:0 is the smallest and 4:4:4 the sharpest, and
-4:2:2 sits between them. In the measurements above 4:2:0 at q50 is much smaller
-than 4:4:4 at q50 (8-20%) but loses 0.2-0.9 dB, and the loss concentrates on
-coloured edges.
-The fair comparison is by eye (and with a chroma-aware metric such as
-SSIMULACRA2 or Butteraugli) at the sizes the pages display, with quality
-raised for 4:2:0 until it matches.
+4:2:2 sits between them. **Working assumption: 4:2:0 is probably fine.** The
+demo devices have high-density displays whose pixels are too small for the
+eye to resolve the colour bleed at edges, which is what subsampling costs.
+Confirm by eye on those devices before locking it in, and fall back to 4:4:4
+only if coloured edges look soft.
+
+In the measurements above, 4:2:0 at q50 is 8-20% smaller than 4:4:4 at q50 but
+loses 0.2-0.9 dB, and the loss concentrates on coloured edges. The fair
+comparison is by eye (and with a chroma-aware metric such as SSIMULACRA2 or
+Butteraugli) at the sizes the pages display, with quality raised for 4:2:0
+until it matches.
 
 - Sharp's AVIF output (`chromaSubsampling`) only offers `4:2:0` and `4:4:4`.
   **4:2:2 needs a different encoder**, such as `avifenc --yuv 422` (libavif)
