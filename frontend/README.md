@@ -24,7 +24,8 @@ static `dist/` output. See "One server, one port" in the root README.
 
 | script | what |
 |---|---|
-| `npm run build` | `tsc -b && vite build` -> `dist/`. Called by `backend`'s `build:frontend` and by `deploy/install-systemd.sh`. |
+| `npm run build` | `vite build` -> `dist/`. Does **not** typecheck. Called by `backend`'s `build:frontend` and by `deploy/install-systemd.sh`. |
+| `npm run typecheck` | `tsc -b` (app + Vite config projects). Run before committing; there is no CI for this yet. |
 | `npm run lint` | ESLint (React hooks + React Compiler rules). |
 | `npm test` | Vitest -- currently the watering-can twist state machine. |
 | `npm run images` | Regenerate the responsive WebP flower images in `src/assets/flower/` from the 2048px PNGs in `../assets/`. |
