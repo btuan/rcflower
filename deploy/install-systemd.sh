@@ -55,7 +55,8 @@ if [[ "${1:-}" != "--no-build" ]]; then
   fi
   echo "Building frontend -> frontend/dist"
   (cd "$FRONTEND_DIR" && "$BUN" run build)
-  (cd "$REPO_ROOT/backend" && "$BUN" install --silent)
+  echo "Installing backend dependencies (bun install)..."
+  (cd "$REPO_ROOT/backend" && "$BUN" install)
 fi
 
 echo "Syncing Python runtime dependencies via uv (no dev group: torch etc.)"
