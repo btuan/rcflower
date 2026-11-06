@@ -78,6 +78,10 @@ bun run build:frontend && bun run start  # prod, :3000
   "One server, one port" in the root README before touching anything here.
 - Don't add API middleware to `vite.config.ts` — API code lives in `backend/`.
   (There used to be a `vite-plugin-sse.ts`; it was removed.)
+- `bun run typecheck` (or `npm run typecheck`) in `frontend/` before committing
+  frontend changes. `build` is `vite build` only and does not typecheck (it
+  keeps deploys fast on the devices), and there is no CI yet, so nothing else
+  catches type errors.
 - `frontend/.env` holds `ALLOWED_HOSTS` (comma-separated) for Vite's dev-server
   host check; per-machine values go in `frontend/.env.local`.
 - No HTTPS in the dev toolchain (mkcert was removed). iOS device-orientation
