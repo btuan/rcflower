@@ -40,7 +40,12 @@ Nothing below has been timed on the Uno Q. Before the larger items:
 2. Profile `/live` on the kiosk: Chrome DevTools Performance with the real
    hardware (not throttling a desktop), plus a bundle visualizer
    (for example `rollup-plugin-visualizer`) on `frontend/dist`.
-3. Record the baseline here, in place, with a date, as
+3. Profile the backend under load on the device: per-request latency for
+   static files and `/api/*`, the SSE fan-out to several clients, and the
+   resident memory and CPU of `rcflower-backend` while the detector is
+   running (`top`, or `systemctl status`). If requests take a few
+   milliseconds, backend optimizations such as B8 aren't worth the risk.
+4. Record the baseline here, in place, with a date, as
    [../hardware/raspberry-pi-4b.md](../hardware/raspberry-pi-4b.md) does.
 
 ## Measured so far (dev machine, 2026-11-06)
@@ -68,6 +73,7 @@ The backend currently sends all of this uncompressed. `/assets/*` already has
 | B5 | Drive the deploy with `make -j` instead of growing the shell script. Targets with file dependencies give B1's skip, B3, and running the backend `bun install` and `uv sync` in parallel with the frontend chain | Medium. Parallel gain is small on routine deploys (installs are near no-ops once cached), larger on a first deploy or dependency change | Low-medium. Check `make` is installed on the devices. Freshness is by mtime, so `git pull` correctly invalidates changed files | Proposed. Device has 4 cores and ~3 GB available RAM, so memory is not a blocker |
 | B6 | Replace `npm` with Bun for installs ([bun-only-toolchain.md](bun-only-toolchain.md)) | Unknown: likely faster installs, no build-time change. Time both on the device first | Medium: deploy risk on the only live site | Proposed, separate branch |
 | B7 | **Upgrade to TypeScript 7** (the native Go compiler; `latest` on npm is 7.0.2, and it ships a `linux-arm64` binary). Speeds up `npm run typecheck`, which now runs only on developer machines, so this helps iteration speed more than deploys | Unknown until timed. On this machine `tsc -b` takes ~3.6 s cold and ~2.9 s with nothing changed (TS 6.0.3), which suggests much of the cost is startup, so the gain may be modest | Medium. Blocked by `typescript-eslint`, whose latest release declares `typescript <6.1.0` and uses the JS compiler API. Needs either a `typescript-eslint` release that supports 7, a different linter, or TS 7 for the typecheck alone with `typescript@~6` kept for ESLint. Check that our tsconfigs behave the same under 7 | Proposed, future PR |
+| B8 | **Compile the backend with `bun compile`** (Bun's experimental ahead-of-time compiler, short for `bun build --compile --aot`; [docs](https://bun.com/docs/compiler/aot)). Produces one executable with no Bun install or `node_modules` on the device, and claims faster startup, lower memory, and faster typed code | Low-medium, and unmeasured. The backend is a long-running service, so startup matters little; lower resident memory on a ~3.6 GB device is the likelier benefit. Profile requests and memory first (see "Measure first") | Medium-high. Experimental. AOT compiles only for the host platform (cross-compiling needs `--no-aot`), so an arm64 binary would be built on the Uno Q itself, with a slower whole-program typecheck and compile. The page doesn't mention linux-arm64, `.env` loading or native addons, and shows Bun v1.4.4 (we have 1.3.14, where `bun compile` doesn't exist). Untyped dependencies (`cookie-parser`, `js-cookie`) may run slower. Prod-only code path, since dev mode spawns Vite | Proposed, optional; revisit after profiling and a Bun upgrade |
 
 Order: time the steps, then B2 (cheap, done), then B5 if parallelism or skip
 logic is still wanted, and B4 only if the on-device build is still slow. B7
