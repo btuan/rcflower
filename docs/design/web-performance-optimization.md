@@ -67,9 +67,11 @@ The backend currently sends all of this uncompressed. `/assets/*` already has
 | B4 | Build `frontend/dist` on a fast machine (or CI) and ship it, so the device needs no Node tooling or `node_modules` at all | Highest, if the device build is slow. Removes `npm ci` and the build from the device entirely | Medium. Changes the deploy flow from `git pull && ./deploy/install-systemd.sh`; needs a place to host the artifact and a rule that `dist` isn't committed | Proposed. Decide after timing (see above) |
 | B5 | Drive the deploy with `make -j` instead of growing the shell script. Targets with file dependencies give B1's skip, B3, and running the backend `bun install` and `uv sync` in parallel with the frontend chain | Medium. Parallel gain is small on routine deploys (installs are near no-ops once cached), larger on a first deploy or dependency change | Low-medium. Check `make` is installed on the devices. Freshness is by mtime, so `git pull` correctly invalidates changed files | Proposed. Device has 4 cores and ~3 GB available RAM, so memory is not a blocker |
 | B6 | Replace `npm` with Bun for installs ([bun-only-toolchain.md](bun-only-toolchain.md)) | Unknown: likely faster installs, no build-time change. Time both on the device first | Medium: deploy risk on the only live site | Proposed, separate branch |
+| B7 | **Upgrade to TypeScript 7** (the native Go compiler; `latest` on npm is 7.0.2, and it ships a `linux-arm64` binary). Speeds up `npm run typecheck`, which now runs only on developer machines, so this helps iteration speed more than deploys | Unknown until timed. On this machine `tsc -b` takes ~3.6 s cold and ~2.9 s with nothing changed (TS 6.0.3), which suggests much of the cost is startup, so the gain may be modest | Medium. Blocked by `typescript-eslint`, whose latest release declares `typescript <6.1.0` and uses the JS compiler API. Needs either a `typescript-eslint` release that supports 7, a different linter, or TS 7 for the typecheck alone with `typescript@~6` kept for ESLint. Check that our tsconfigs behave the same under 7 | Proposed, future PR |
 
-Order: time the steps, then B2 (cheap), then B5 if parallelism or skip logic is
-still wanted, and B4 only if the on-device build is still slow.
+Order: time the steps, then B2 (cheap, done), then B5 if parallelism or skip
+logic is still wanted, and B4 only if the on-device build is still slow. B7
+waits on ESLint (or a replacement linter) supporting TypeScript 7.
 
 ## Backend run time
 
